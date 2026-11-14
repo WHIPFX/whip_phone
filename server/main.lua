@@ -41,10 +41,13 @@ exports('SetSession', function(src, session) TriggerClientEvent('whip_phone:clie
 
 --- the admin Phones panel (whip_core's devtools) changed phone_numbers / contacts: the numbers are read again, then
 --- phones that are open fetch their session again. A retired number's cards in online players' phones are put
---- right at once (Sim.recheckRetired).
+--- right at once (Sim.recheckRetired), and the block lists follow a changed number, or drop a deleted one (Blocks.load).
 exports('ReloadCache', function()
     CreateThread(function()
-        if PhoneDB.ready and Numbers.load() then Sim.recheckRetired() end
+        if PhoneDB.ready and Numbers.load() then
+            Sim.recheckRetired()
+            Blocks.load()
+        end
         TriggerClientEvent('whip_phone:client:refresh', -1)
     end)
     return true

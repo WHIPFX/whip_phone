@@ -1,6 +1,6 @@
 # whip_phone: the framework contract
 
-This is every request the phone's core and built-in modules make, and every push they listen for. **whip_phone answers them itself** (Josh, 7 Oct 2026). It keeps its own tables, made and migrated by `server/schema.lua` when it starts. The handlers are in `server/contract.lua` (session, settings, contacts, messages, the SIM page) and `server/calls.lua` (calls and Recents). It is the one whip satellite that talks to the database directly; everything else goes through whip_core's exports.
+This is every request the phone's core and built-in modules make, and every push they listen for. **whip_phone answers them itself** (Josh, 7 Oct 2026). It keeps its own tables, made and migrated by `server/schema.lua` when it starts. The handlers are in `server/contract.lua` (session, settings, contacts, messages, the SIM page), `server/calls.lua` (calls and Recents) and `server/blocks.lua` (the block list). It is the one whip satellite that talks to the database directly; everything else goes through whip_core's exports.
 
 ## Numbers and SIM cards (Josh, 7 Oct 2026)
 
@@ -28,7 +28,7 @@ This is every request the phone's core and built-in modules make, and every push
 | `locked` | its owner locked the number |
 | `blank` | the card could not be given a number |
 
-**Tables:** `phone_numbers` (number, owner charId, locked), `phone_contacts`, `phone_messages` and `phone_calls`, all keyed by number. whip_core's admin Phones panel edits them too, by number.
+**Tables:** `phone_numbers` (number, owner charId, locked), `phone_contacts`, `phone_messages`, `phone_calls` and `phone_blocks`, all keyed by number. whip_core's admin Phones panel edits them too, by number (all but `phone_blocks`: whip_phone moves a changed number's blocks itself).
 
 ## How a request travels
 
@@ -78,19 +78,20 @@ The plain event `TriggerClientEvent('whip_phone:client:push', src, module, event
 | `whip_phone:settings:numbers` | nothing | `{ current, state, numbers = { { number, locked }, ... } }`: the character's own numbers (Settings > SIM) |
 | `whip_phone:settings:lock` | `{ number, locked }` | `true`, or `false, 'reason'` (not your number). Whoever holds that SIM is refreshed at once |
 | `whip_phone:settings:card` | `{ name, picture, frame = { x, y, z } }` | the card as kept, `{ name, picture, frame }` (`{}` for none), or `false, 'reason'`. Settings > My card. Only the number's owner may change it, with its SIM in their phone. `picture` must pass whip_core's `CheckPicture` (`Config.LorePictureLinks`: Fivemanage by default). Kept on the SIM (`phone_numbers.prefs.card`). Phones that have the number saved are told to reload their contacts |
-| `whip_phone:contacts:list` | nothing | `{ { id, name, number, picture, pictureFrame }, ... }`. `picture` is a lore character's picture, else the picture on the number's card; `pictureFrame` is `{ x, y, z }` or nil (the middle) |
+| `whip_phone:contacts:list` | nothing | `{ { id, name, number, picture, pictureFrame, noBlock }, ... }`. `picture` is a lore character's picture, else the picture on the number's card; `pictureFrame` is `{ x, y, z }` or nil (the middle); `noBlock` is true for a lore character's number (the page offers no Block for it) |
 | `whip_phone:contacts:save` | `{ id = nil (new) or id, name, number }` | the saved `{ id, name, number }` |
 | `whip_phone:contacts:delete` | `{ id }` | `true` |
 
 - **session:** asked every time the player opens the phone (refusing it keeps the phone shut). The page only reloads contacts and app data when the session it gets differs from the last one, so keep it small and stable. `settings` is what `settings:save` stored; leave it nil for a fresh phone.
 - **contacts:** shared by every app (names on calls, texts and notifications). After changing contacts outside the phone, push `Push(src, 'contacts', 'changed')` and the phone reloads them.
+- **noBlock:** set on contacts, Messages threads and Recents rows whose number is a lore character's (the Director's scenarios text and call from it). The page offers no Block for it, and `blocks:add` refuses it.
 - **A picture's frame:** `{ x, y, z }`. `x` and `y` are the point of the picture kept in view, 0-100 across and down (50, 50 is the middle). `z` is the zoom, 1-3. The page draws it as `object-position: x% y%` with `scale(z)` about that same point (`kit.frameStyle`), so no gap shows at any zoom, whatever the picture's shape. whip_core's Director frames lore pictures the same way.
 
 ## Callbacks: Phone module (`whip_phone:phone:*`)
 
 | Name | args | Return |
 |---|---|---|
-| `recents` | nothing | `{ { id, number, dir = 'in'/'out'/'missed', time, duration }, ... }`, newest first |
+| `recents` | nothing | `{ { id, number, dir = 'in'/'out'/'missed', time, duration, noBlock }, ... }`, newest first. Calls from a number this SIM blocked are left out, even after an unblock |
 | `dial` | `{ number }` | `{ callId, state = 'dialing' }` or `false, 'reason'` ("Number not in service", "Busy") |
 | `answer` | `{ callId }` | `{ state = 'active', startedAt }` |
 | `decline` | `{ callId }` | `true` |
@@ -125,19 +126,37 @@ The plain event `TriggerClientEvent('whip_phone:client:push', src, module, event
 
 **A call also ends when** a side logs out or disconnects, the SIM or phone leaves them (anything moved in their pockets, or the SIM tray), the number is locked, or the voice system stops. The other side gets `state ended` with the reason.
 
+**A call from a blocked number** (the callee's SIM blocked the caller): the caller gets what an unblocked call would get (unavailable, `Busy`, or `ringing` and then `unavailable` "No answer" after `Config.RingSeconds`), but the callee is never rung and its line stays free. The row is marked `blocked` and stays out of the callee's Recents. Blocking a number whose call is ringing at that moment sends the callee `state declined` and lets the caller's side ring out the same way. An answered call goes on.
+
 ## Callbacks: Messages module (`whip_phone:messages:*`)
 
 | Name | args | Return |
 |---|---|---|
-| `threads` | nothing | `{ { number, unread, last = { text, time, me } }, ... }`, newest first |
+| `threads` | nothing | `{ { number, unread, last = { text, time, me }, noBlock }, ... }`, newest first |
 | `thread` | `{ number }` | `{ { id, me, text, time }, ... }`, oldest first |
-| `send` | `{ number, text }` | `{ id, time }` or `false, 'reason'` |
+| `send` | `{ number, text }` | `{ id, time }` or `false, 'reason'`. To a SIM that blocked the sender: the same answer, and the text is kept for the sender's thread but never pushed to the blocker |
 | `read` | `{ number }` | `true` |
 
+**Blocked texts.** A text sent while the receiving SIM blocks its sender is stored with `blocked = 1`. The receiver's `threads` (conversations, last messages, unread counts) and `thread` leave it out, even after an unblock; the sender sees it as sent in their own thread.
+
 **Pushes to `messages`:**
-- **`incoming`** `{ id, number, text, time }`: send to the recipient when a text arrives. The module adds it to the chat, bumps unread and notifies, unless the player is looking at that chat.
+- **`incoming`** `{ id, number, text, time }`: send to the recipient when a text arrives. The module adds it to the chat, bumps unread and notifies, unless the player is looking at that chat. Never sent for a blocked text.
 - **`threads`** `[ ... ]`: replaces the list.
 - **`thread`** `{ number, messages }`: replaces one conversation.
+
+## Callbacks: the block list (`whip_phone:blocks:*`)
+
+The SIM's, like its contacts: whoever has the SIM in their phone sees and changes it, and it goes where the SIM goes (`server/blocks.lua`). The page keeps it as `app.blocks` (docs/MODULES.md), read with each session. Blocking is one-way: the blocker can still call and text the number they blocked.
+
+| Name | args | Return |
+|---|---|---|
+| `list` | nothing | `{ { number, time }, ... }`, the latest block first (`time` in seconds) |
+| `add` | `{ number }` | `true` (also when it is blocked already), or `false, 'reason'`: not 10 digits, the SIM's own number, a number not in service, a lore character's number, or 100 blocked already. A call from that number ringing this SIM now stops ringing |
+| `remove` | `{ number }` | `true`. Its texts and calls from while it was blocked stay hidden |
+
+Rate limits match contacts: `list` 250 ms (burst 6), `add` and `remove` 500 ms (burst 3).
+
+**Nothing tells the blocked number:** every answer its phone gets (a text sent, a call ringing out, `Busy`, unavailable) is one an unblocked number could get. **Lore characters' numbers can't be blocked**, since the Director's scenarios text and call from them. Bank and Business send nothing from a number, so they have nothing to block.
 
 ## Callbacks: Bank module (`whip_phone:bank:*`)
 
@@ -211,7 +230,8 @@ The Business app is whip_core's jobs, asked with the player as `by` (`server/bus
 
 **Phone numbers.** whip_phone makes these tables itself (`server/schema.lua`, 7 Oct 2026); whip_core never did. whip_core's admin Phones panel (`server/devtools.lua`) reads and writes them, by number, and calls `exports.whip_phone:ReloadCache()` after a change. whip_phone then re-reads its numbers, and open phones refetch their session.
 - `phone_numbers`: several per character, 10 digits, prefixes 689 / 041 / 227 / 869 / 915 (`Config.NumberPrefixes`), and a `locked` flag. A number the panel deletes or changes is **retired**, never removed (`retiredAt`, and `renamedTo` for a change, 8 Oct 2026): a SIM card carries its number, and a removed one came back the next time its phone opened. A deleted number's cards stop working; a changed number's cards are written over with the new number when their phone is next used. A retired number is never handed out again;
-- `phone_contacts`, `phone_messages`, `phone_calls`.
+- `phone_contacts`, `phone_messages`, `phone_calls`;
+- `phone_blocks` (the SIM's number, the number it blocked, when): kept in memory as the numbers are. `phone_messages` and `phone_calls` carry `blocked` (1: sent or rung while the receiver blocked the sender). The panel does not touch `phone_blocks`: after its `ReloadCache`, whip_phone moves a changed number's blocks to the number it became and drops a deleted number's.
 
 **Items** (done 7 Oct 2026, `server/items.lua`):
 - whip_phone registers `phone` (a panel item with a one-slot SIM tray) and `sim_card` (made for its receiver; a shop makes it for the buyer).

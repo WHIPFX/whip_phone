@@ -1,6 +1,9 @@
 // Phone: recents, contacts, keypad and the call screen. UI only: every call action is a request the framework answers
 // (whip_phone:phone:*, see docs/FRAMEWORK.md) and call progress arrives as pushes; contacts use the shared contacts
 // service (whip_phone:contacts:*). Delete this folder and the phone simply has no Phone app.
+// BLOCKING (14 Nov 2026): a number's page (a contact's, or a Recents call's through its info button) blocks or
+// unblocks it (the shared block list, app.blocks). The server keeps a blocked number's calls from ringing here and out
+// of Recents; a lore character's number (noBlock) and the SIM's own get no Block.
 (() => {
   const { kit: K, icons: I } = window.WhipPhone;
   const GLYPH = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M7.2 3.2c.6-.3 1.3-.1 1.6.5l1.5 3.1c.3.6.1 1.3-.4 1.7l-1.3 1c.9 2.1 2.6 3.8 4.7 4.7l1-1.3c.4-.5 1.1-.7 1.7-.4l3.1 1.5c.6.3.8 1 .5 1.6l-.9 1.9c-.4.8-1.3 1.3-2.2 1.2C9.9 18.3 4.5 12.9 4.1 6.3C4 5.4 4.5 4.5 5.3 4.1z"/></svg>';
@@ -176,19 +179,50 @@
     capsule(app);   // a hidden call's capsule follows it
   }
 
+  // ---------------------------------------------------------------- blocking
+  /** a number this phone may block: not the SIM's own, and not a lore character's (the server says which: noBlock, on
+   *  a contact or a Recents call) */
+  function canBlock(app, number) {
+    const n = digits(number), c = app.contacts.find(n);
+    return !!n && n !== digits(app.session.number) && !(c && c.noBlock) && !app.state.recents.some((r) => digits(r.number) === n && r.noBlock);
+  }
+  /** Block asks first (what it does, and that they are not told); Unblock does not */
+  function blockSheet(app) {
+    const s = app.state, n = s.sheet && s.sheet.number;
+    if (!n || n !== s.contact) return '';
+    return K.sheet({ title: `Block ${app.contacts.name(n)}?`, close: 'closeSheet', body:
+      '<p class="ct-p">Their texts and calls stop reaching this SIM. They are not told: to them, texts send and calls ring out.</p>' +
+      `<div class="ct-btns">${K.button({ label: 'Cancel', act: 'closeSheet', kind: 'gray' })}${K.button({ label: s.sheet.busy ? '…' : 'Block', act: 'block', kind: 'red', d: { number: n } })}</div>` });
+  }
+  async function setBlocked(app, number, on) {
+    const s = app.state;
+    if (s.blocking) return;
+    s.blocking = true;
+    if (s.sheet) s.sheet.busy = true;
+    try {
+      await (on ? app.blocks.add(number) : app.blocks.remove(number));
+      app.toast(on ? 'Number blocked' : 'Number unblocked');
+      s.sheet = null;
+      if (on) loadRecents(app);   // (a call of theirs ringing just now leaves Recents)
+    } catch (e) { app.toast(e.reason || 'Could not change that'); if (s.sheet) s.sheet.busy = false; }
+    s.blocking = false;
+  }
+
   // ---------------------------------------------------------------- screens
   function recentsList(app) {
     const s = app.state;
     if (!s.recents.length) return K.empty({ icon: I.recent, title: s.loaded ? 'No recent calls' : 'Loading…', text: s.loaded ? 'Calls you make and get show up here.' : '' });
-    return K.list(s.recents.map((r) => {
+    return `<div class="list" style="--inset:58px">${s.recents.map((r) => {
       const name = app.contacts.name(r.number), miss = r.dir === 'missed';
       const sub = miss ? 'Missed' : (r.dir === 'out' ? 'Outgoing' : 'Incoming') + (r.duration ? ' · ' + K.fmtDuration(r.duration) : '');
       // A contact's picture in place of the call's icon (the line under the name says which way it went).
       const p = picOf(app, r.number);
-      return K.row({ icon: p.pic ? '' : miss ? I.missed : r.dir === 'out' ? I.out : I.call, av: p.pic ? K.avatar({ name, size: 30, pic: p.pic, frame: p.frame }) : '',
+      const row = K.row({ icon: p.pic ? '' : miss ? I.missed : r.dir === 'out' ? I.out : I.call, av: p.pic ? K.avatar({ name, size: 30, pic: p.pic, frame: p.frame }) : '',
         label: `<span${miss ? ' style="color:var(--red)"' : ''}>${K.esc(name)}</span>`,
         sub: K.esc(sub), value: K.esc(K.fmtWhen(r.time)), act: 'dial', d: { number: r.number }, chev: false, hint: 'Call', html: true });
-    }), { inset: 58 });
+      // The row calls back; its info button opens the number's page (Add, Message, Block).
+      return `<div class="rc">${row}<button class="rc-i" data-act="contact" ${K.data({ number: digits(r.number) })} data-hint="Info">${I.info}</button></div>`;
+    }).join('')}</div>`;
   }
   function contactsList(app) {
     const s = app.state, q = s.query.trim().toLowerCase();
@@ -206,13 +240,21 @@
   }
   function contactScreen(app, number, inSplit) {
     const c = app.contacts.find(number), name = c ? c.name : K.fmtNumber(number), hasMsg = app.modules().some((m) => m.id === 'messages');
+    const blocked = app.blocks.has(number);
     const act = (icon, label, a, d = {}) => `<button class="ct-act" data-act="${a}" ${K.data(d)} data-hint="${K.esc(label)}"><i>${icon}</i>${K.esc(label)}</button>`;
+    // Block (or Unblock: one blocked before it became a lore character's can still come off), then Delete contact
+    const lower = [
+      ...(blocked || canBlock(app, number) ? [K.row({ label: blocked ? 'Unblock this caller' : 'Block this caller', act: blocked ? 'unblock' : 'askBlock', d: { number },
+        chev: false, tone: blocked ? '' : 'danger', hint: blocked ? 'Unblock' : 'Block' })] : []),
+      ...(c ? [K.row({ label: 'Delete contact', act: 'deleteContact', d: { id: c.id }, chev: false, tone: 'danger', hint: 'Delete' })] : []),
+    ];
     const body = `<div class="ct-head">${K.avatar({ name: c ? c.name : '', size: 92, pic: c && c.picture, frame: c && c.pictureFrame })}<b>${K.esc(name)}</b>${c ? `<span>${K.esc(K.fmtNumber(c.number))}</span>` : ''}</div>` +
       `<div class="ct-acts">${act(GLYPH, 'Call', 'dial', { number })}${hasMsg ? act(I.msg, 'Message', 'message', { number }) : ''}${act(c ? I.edit : I.plus, c ? 'Edit' : 'Add', c ? 'editContact' : 'newContact', { number })}</div>` +
       K.list([K.row({ label: 'mobile', sub: K.fmtNumber(number), act: 'dial', d: { number }, chev: false, hint: 'Call' })], { inset: 14 }) +
-      (c ? K.list([K.row({ label: 'Delete contact', act: 'deleteContact', d: { id: c.id }, chev: false, tone: 'danger', hint: 'Delete' })], { inset: 14 }) : '');
+      (blocked ? '<div class="list-f">You blocked this number: its texts and calls don\'t reach this SIM.</div>' : '') +
+      (lower.length ? K.list(lower, { inset: 14 }) : '');
     if (inSplit) return K.scroll(body);
-    return K.screen('ct-' + number, K.nav({ back: app.state.tab === 'recents' ? 'Recents' : 'Contacts', act: 'closeContact' }) + K.scroll(body), { slide: true });
+    return K.screen('ct-' + number, K.nav({ back: app.state.tab === 'recents' ? 'Recents' : 'Contacts', act: 'closeContact' }) + K.scroll(body) + blockSheet(app), { slide: true });
   }
   function editScreen(app) {
     const e = app.state.edit;
@@ -256,6 +298,15 @@
 .ct-act i{width:24px;height:24px}
 .ct-act i svg{width:100%;height:100%}
 .nb-t{color:var(--accent);font-size:16px;font-weight:700;padding:6px 6px}
+.ct-p{font-size:14.5px;color:var(--text2);line-height:1.4;margin:0 2px 16px}
+.ct-btns{display:flex;gap:10px}
+.ct-btns .btn{flex:1}
+/* ---------- phone: a Recents call and its info button ---------- */
+.rc{display:flex;align-items:center;position:relative}
+.rc>.row{flex:1;min-width:0;padding-right:4px}
+.rc+.rc::before{content:'';position:absolute;top:0;left:var(--inset,56px);right:0;border-top:.5px solid var(--sep);z-index:1}
+.rc-i{width:42px;align-self:stretch;display:grid;place-items:center;color:var(--accent);flex:none}
+.rc-i svg{width:22px;height:22px}
 .m-phone .side .seg{margin-top:4px}
 .ph-main{flex:1;display:flex;flex-direction:column;justify-content:center;min-height:0}
 /* ---------- phone: call screen ---------- */
@@ -296,9 +347,10 @@
 `,
     // the call capsule's Decline and End handsets turn down like the call screen's (the capsule is outside the app: not scoped)
     globalCss: '.banner[data-app="phone"] .b-act:is([data-a="decline"],[data-a="hangup"]) svg{transform:rotate(135deg)}',
-    state: () => ({ tab: 'recents', num: '', recents: [], loaded: false, query: '', contact: null, edit: null, call: null, invite: null, seen: 0 }),   // seen: missed calls before this are read
+    // seen: missed calls before this are read. sheet: Block's question ({ number, busy }); blocking: a block or unblock on its way
+    state: () => ({ tab: 'recents', num: '', recents: [], loaded: false, query: '', contact: null, edit: null, call: null, invite: null, seen: 0, sheet: null, blocking: false }),
 
-    session(app) { app.state.loaded = false; app.state.recents = []; loadRecents(app); },   // the last SIM's go (audit 16, CLI-1)
+    session(app) { app.state.loaded = false; app.state.recents = []; app.state.sheet = null; loadRecents(app); },   // the last SIM's go (audit 16, CLI-1)
     open(app, args = {}) {
       const s = app.state;
       if (!s.loaded) loadRecents(app);
@@ -314,6 +366,7 @@
     back(app) {
       const s = app.state;
       if (s.call && s.call.full && s.call.state !== 'ended') { hideCall(app); return true; }   // the call goes on in the capsule
+      if (s.sheet) { s.sheet = null; return true; }
       if (s.edit) { s.edit = null; return true; }
       if (s.contact) { s.contact = null; return true; }
       return false;
@@ -345,7 +398,7 @@
         const side = K.title('Phone') + K.seg([['recents', 'Recents'], ['contacts', 'Contacts']], s.tab === 'contacts' ? 'contacts' : 'recents', 'tabSeg') +
           K.scroll(s.tab === 'contacts' ? contactsList(app) : recentsList(app));
         const main = s.contact ? contactScreen(app, s.contact, true) : `<div class="ph-main">${keypad(app)}</div>`;
-        return K.screen('tab', `${K.nav({ right: K.navBtn(I.plus, 'newContact', {}, 'New contact') })}${K.split(side, main, s.contact ? 'c' + s.contact : 'pad')}`);
+        return K.screen('tab', `${K.nav({ right: K.navBtn(I.plus, 'newContact', {}, 'New contact') })}${K.split(side, main, s.contact ? 'c' + s.contact : 'pad')}${blockSheet(app)}`);
       }
       if (s.contact) return contactScreen(app, s.contact, false);
       const title = { recents: 'Recents', contacts: 'Contacts', keypad: '' }[s.tab];
@@ -393,8 +446,12 @@
       del(app) { app.state.num = app.state.num.slice(0, -1); },
       dialPad(app) { dial(app, app.state.num); },
       dial(app, d) { dial(app, d.number); },
-      contact(app, d) { app.state.contact = digits(d.number); },
-      closeContact(app) { app.state.contact = null; },
+      contact(app, d) { app.state.contact = digits(d.number); app.state.sheet = null; },
+      closeContact(app) { app.state.contact = null; app.state.sheet = null; },
+      askBlock(app, d) { if (canBlock(app, d.number)) app.state.sheet = { number: digits(d.number), busy: false }; },
+      closeSheet(app) { app.state.sheet = null; },
+      block(app, d) { return setBlocked(app, d.number, true); },
+      unblock(app, d) { return setBlocked(app, d.number, false); },
       message(app, d) { app.open('messages', { number: d.number }); },
       newContact(app, d) { app.state.edit = { id: null, name: '', number: d.number ? K.fmtNumber(d.number) : app.state.tab === 'keypad' ? K.fmtNumber(app.state.num) : '' }; },
       editContact(app, d) { const c = app.contacts.find(d.number); if (c) app.state.edit = { id: c.id, name: c.name, number: K.fmtNumber(c.number) }; },

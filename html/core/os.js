@@ -208,6 +208,26 @@ class Contacts {
   async remove(id) { await this.os.request('whip_phone:contacts:delete', { id }); await this.load(true); }
 }
 
+// ---------------------------------------------------------------- the block list (framework data: whip_phone:blocks:*)
+// The SIM's, like its contacts, read with each session and shared by every app: Messages and Phone offer Block / Unblock
+// by it, Settings lists it. The blocking itself is the server's (whip_phone/server/blocks.lua): a blocked number's texts
+// and calls never reach this page, so nothing here filters.
+class Blocks {
+  constructor(os) { this.os = os; this.list = []; this.loaded = false; this._p = null; this._gen = 0; }
+  load(force = false) {
+    if (this._p && !force) return this._p;
+    // A read that answers after a newer one began (the last SIM's, landing late) is dropped.
+    const gen = ++this._gen;
+    this._p = this.os.request('whip_phone:blocks:list').then((l) => { if (gen === this._gen) this.list = Array.isArray(l) ? l : []; }, () => {})
+      .then(() => { if (gen === this._gen) { this.loaded = true; this.os.update(); } return this.list; });
+    return this._p;
+  }
+  /** is this number on the SIM's list? */
+  has(number) { const d = digits(number); return !!d && this.list.some((b) => digits(b.number) === d); }
+  async add(number) { await this.os.request('whip_phone:blocks:add', { number: digits(number) }); await this.load(true); }
+  async remove(number) { await this.os.request('whip_phone:blocks:remove', { number: digits(number) }); await this.load(true); }
+}
+
 // ---------------------------------------------------------------- the OS
 export class PhoneOS {
   constructor(parent, opts = {}) {
@@ -228,6 +248,7 @@ export class PhoneOS {
     this.mods = new Map();          // id -> { def, ns, external, state, ctx }
     this.modCss = {};
     this.contacts = new Contacts(this);
+    this.blocks = new Blocks(this);
     // The ringtone, the tones and the volume (sounds.js), the SIM's like its wallpaper (Josh, 12 Oct 2026).
     this.sounds = new PhoneSounds();
     this.settingsApi = {
@@ -346,6 +367,8 @@ export class PhoneOS {
       /** a file next to your module script, as a URL (img src, fetch): app.asset('img/car.png') */
       asset: (path) => new URL(path, m.base).href,
       contacts: os.contacts,
+      /** the SIM's block list: list ({ number, time }), loaded, load(), has(number), add(number), remove(number) */
+      blocks: os.blocks,
       settings: os.settingsApi,
       /** the call's volume (0-100), the voice system's "Phone call volume" on this PC: callVolume() reads it,
        *  callVolume(n) changes it; resolves with it, or null when no voice system offers it */
@@ -385,6 +408,8 @@ export class PhoneOS {
     // and for good when it failed.
     this.contacts.list = []; this.contacts.loaded = false;
     this.contacts.load(true);
+    this.blocks.list = []; this.blocks.loaded = false;   // (the same for the block list: another SIM, another list)
+    this.blocks.load(true);
     for (const m of this.mods.values()) this.call(m, 'session', this.s.session);
     this.update();
   }

@@ -51,10 +51,16 @@ local function record(row, status, answered, ended)
         { status, row })
 end
 
---- A call that never connected, for Recents only (the called number was out of reach or busy).
-local function recordMissed(fromNumber, toNumber, status)
-    MySQL.insert('INSERT INTO phone_calls (callerNumber, calleeNumber, status, endedAt) VALUES (?, ?, ?, CURRENT_TIMESTAMP)',
-        { fromNumber, toNumber, status })
+--- A call that never connected, for Recents only (the called number was out of reach or busy). `blocked`: the callee
+--- blocked the caller (server/blocks.lua), so it stays out of the callee's Recents.
+local function recordMissed(fromNumber, toNumber, status, blocked)
+    MySQL.insert('INSERT INTO phone_calls (callerNumber, calleeNumber, status, endedAt, blocked) VALUES (?, ?, ?, CURRENT_TIMESTAMP, ?)',
+        { fromNumber, toNumber, status, blocked and 1 or 0 })
+end
+
+--- A call's row, out of its callee's Recents (they blocked the caller while it rang).
+local function recordBlocked(row)
+    if row then MySQL.update('UPDATE phone_calls SET blocked = 1 WHERE callId = ?', { row }) end
 end
 
 --- THE ONE PLACE A CALL ENDS: out of memory, and its sound with it. A lore character's call (Calls.fromLore) also
@@ -159,6 +165,22 @@ function Calls.numberLocked(number)
     for _, call in pairs(calls) do
         if call.callerNumber == number then hangUp(call.caller, 'Number locked')
         elseif call.calleeNumber == number and call.callee then hangUp(call.callee, 'Number locked') end
+    end
+end
+
+--- The SIM with `by` blocked `number` (server/blocks.lua): a call from it still ringing there stops ringing, as if
+--- declined, and leaves the callee's Recents. The caller is told nothing: their side rings on and runs out as any
+--- unanswered call ("No answer", the dial's timer), with nobody at the other end to answer it. A call already
+--- answered goes on: hanging up is the blocker's.
+function Calls.blocked(by, number)
+    for _, call in pairs(calls) do
+        if call.state == 'ringing' and call.callee and not call.lore and call.calleeNumber == by and call.callerNumber == number then
+            local callee = call.callee
+            if inCall[callee] == call.id then inCall[callee] = nil end
+            call.callee, call.blocked = nil, true
+            recordBlocked(call.row)   -- (not written yet: the dial marks it when it is)
+            push(callee, 'state', { callId = call.id, state = 'declined' })
+        end
     end
 end
 
@@ -301,19 +323,21 @@ Whip.register(function()
         end)
     end
 
-    -- -> { { id, number, dir = 'in'|'out'|'missed', time, duration }, ... } newest first
+    -- -> { { id, number, dir = 'in'|'out'|'missed', time, duration, noBlock }, ... } newest first. noBlock: a lore
+    -- character's number, which the page offers no Block for (server/blocks.lua)
     cb('whip_phone:phone:recents', LIGHT, function(source, player)
         local me = Sim.numberOf(source, player)
         if not me then return {} end
-        -- Each side is its own seek (schema.lua idx_caller_id, idx_callee_id), newest first, merged here: one query with
-        -- an OR sorted every call the number ever had before its LIMIT (audit 20, PHN-7).
+        -- Each side is its own seek (schema.lua idx_caller_id, idx_callee_shown), newest first, merged here: one query
+        -- with an OR sorted every call the number ever had before its LIMIT (audit 20, PHN-7).
         local limit = Config.RecentCalls or 50
         local q = [[SELECT callId, callerNumber, calleeNumber, status,
                 UNIX_TIMESTAMP(startedAt) AS t, UNIX_TIMESTAMP(answeredAt) AS a, UNIX_TIMESTAMP(endedAt) AS e
-            FROM phone_calls WHERE %s = ? ORDER BY callId DESC LIMIT ?]]
-        local ok, made = PhoneDB.call('query', q:format('callerNumber'), { me, limit })
+            FROM phone_calls WHERE %s ORDER BY callId DESC LIMIT ?]]
+        local ok, made = PhoneDB.call('query', q:format('callerNumber = ?'), { me, limit })
         if not ok then return false, PhoneDB.NET_DOWN end   -- (server/contract.lua: answers instead of throwing)
-        local okIn, got = PhoneDB.call('query', q:format('calleeNumber'), { me, limit })
+        -- Not the calls from a number this SIM had blocked: never shown here, after an unblock too (server/blocks.lua)
+        local okIn, got = PhoneDB.call('query', q:format('calleeNumber = ? AND blocked = 0'), { me, limit })
         if not okIn then return false, PhoneDB.NET_DOWN end
         local rows, seen = {}, {}
         for _, list in ipairs({ made or {}, got or {} }) do
@@ -327,12 +351,14 @@ Whip.register(function()
         for i, r in ipairs(rows) do
             local outgoing = r.callerNumber == me
             local answered = r.status == 'answered'
+            local number = outgoing and r.calleeNumber or r.callerNumber
             out[i] = {
                 id = r.callId,
-                number = outgoing and r.calleeNumber or r.callerNumber,
+                number = number,
                 dir = outgoing and 'out' or (answered and 'in' or 'missed'),
                 time = tonumber(r.t) or os.time(),
                 duration = (answered and r.a and r.e) and math.max(0, math.floor(tonumber(r.e) - tonumber(r.a))) or 0,
+                noBlock = Numbers.loreOf(number) ~= nil or nil,
             }
         end
         return out
@@ -352,28 +378,37 @@ Whip.register(function()
         if not Whip.voiceSystem() then return false, voiceDownText() end
 
         local callee = Sim.holderOf(to)
+        -- THE CALLED SIM BLOCKED THIS NUMBER (server/blocks.lua): every answer below is what it would be unblocked —
+        -- unavailable, busy, or ringing until "No answer" — so nothing tells the caller. Only nobody is rung, and every
+        -- row it leaves is marked, out of the callee's Recents.
+        local blocked = Blocks.has(to, me)
         -- Down is unavailable: their phone is put away and they can neither answer nor decline, so it rang out its
         -- whole ring for nothing (audit 20, PHN-4; Josh 16 Oct: a death hangs up and puts the phone away)
         local calleeSheet = callee and exports.whip_core:GetPlayer(callee)
         if not callee or (calleeSheet and calleeSheet.isDead) then
-            recordMissed(me, to, 'unavailable')
+            recordMissed(me, to, 'unavailable', blocked)
             return false, 'The number you called is unavailable'
         end
         if inCall[callee] then
-            recordMissed(me, to, 'missed')
+            recordMissed(me, to, 'missed', blocked)
             return false, 'Busy'
         end
 
         nextId = nextId + 1
-        local call = { id = nextId, caller = source, callerNumber = me, callee = callee, calleeNumber = to, state = 'ringing' }
-        calls[call.id], inCall[source], inCall[callee] = call, call.id, call.id
+        -- Blocked: a call with nobody at the other end (as Calls.blocked leaves one that was ringing). It rings the caller
+        -- out on the timer below; the callee's line stays free.
+        local call = { id = nextId, caller = source, callerNumber = me, callee = (not blocked) and callee or nil, calleeNumber = to,
+                       state = 'ringing', blocked = blocked or nil }
+        calls[call.id], inCall[source] = call, call.id
+        if call.callee then inCall[call.callee] = call.id end
 
         -- THE HISTORY ROW CANNOT STRAND THE CALL (audit 9, DAT-1). The state above is taken before the await, so two
         -- dials cannot both find the callee free. A database error used to throw out of here with that state left in
         -- place: both players "in a call" until they logged off, every dial to either one "Busy". Caught now: the call
         -- goes on without its Recents row.
         ---@type boolean, integer|string|nil
-        local okRow, historyRow = pcall(MySQL.insert.await, 'INSERT INTO phone_calls (callerNumber, calleeNumber) VALUES (?, ?)', { me, to })
+        local okRow, historyRow = pcall(MySQL.insert.await, 'INSERT INTO phone_calls (callerNumber, calleeNumber, blocked) VALUES (?, ?, ?)',
+            { me, to, blocked and 1 or 0 })
         if not okRow then
             print(('^3[whip_phone] a call\'s history row could not be written (%s): the call goes on without it^7'):format(tostring(historyRow)))
             historyRow = nil
@@ -384,10 +419,14 @@ Whip.register(function()
             return false, 'That call has ended'
         end
         call.row = historyRow
+        -- Blocked while the row was written (Calls.blocked let go of the callee before it had a row to mark).
+        if call.blocked and not blocked then recordBlocked(call.row) end
 
         -- With the called SIM's sounds (its ringtone, its volume), for a page that has not had its session yet.
-        push(callee, 'incoming', { callId = call.id, number = me, sounds = PhoneDB.sounds(to) })
-        push(callee, 'state', { callId = call.id, state = 'ringing' })
+        if call.callee then
+            push(call.callee, 'incoming', { callId = call.id, number = me, sounds = PhoneDB.sounds(to) })
+            push(call.callee, 'state', { callId = call.id, state = 'ringing' })
+        end
         push(source, 'state', { callId = call.id, state = 'ringing' })
 
         SetTimeout((Config.RingSeconds or 30) * 1000, function()

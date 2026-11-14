@@ -10,6 +10,8 @@
 // MY CARD (Josh, 25 Oct 2026): the profile at the top opens the number's contact card: the name this phone shows as
 // yours, and a profile picture (a Fivemanage link) framed by hand (dragged, zoomed: kit.frameStyle). The people who
 // have the number saved see the picture (server/card.lua). Only the number's owner changes it.
+// BLOCKED NUMBERS (14 Nov 2026): the SIM's block list (app.blocks, whip_phone/server/blocks.lua), each number unblocked
+// from here. Numbers are blocked from their conversation in Messages, or their page in Phone.
 (() => {
   const { kit: K, icons: I } = window.WhipPhone;
   // The sounds' pick pages: which setting each picks, from which list, and its title.
@@ -53,7 +55,7 @@
   /** the call volume, for the Sounds page (null: no voice system offers it, and the row stays hidden) */
   async function loadCallVol(app) { app.state.callVol = await app.callVolume(); }
   const GLYPH ='<svg viewBox="0 0 512 512"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="32" d="M262.29 192.31a64 64 0 1 0 57.4 57.4a64.13 64.13 0 0 0-57.4-57.4M416.39 256a154 154 0 0 1-1.53 20.79l45.21 35.46a10.81 10.81 0 0 1 2.45 13.75l-42.77 74a10.81 10.81 0 0 1-13.14 4.59l-44.9-18.08a16.11 16.11 0 0 0-15.17 1.75A164.5 164.5 0 0 1 325 400.8a15.94 15.94 0 0 0-8.82 12.14l-6.73 47.89a11.08 11.08 0 0 1-10.68 9.17h-85.54a11.11 11.11 0 0 1-10.69-8.87l-6.72-47.82a16.07 16.07 0 0 0-9-12.22a155 155 0 0 1-21.46-12.57a16 16 0 0 0-15.11-1.71l-44.89 18.07a10.81 10.81 0 0 1-13.14-4.58l-42.77-74a10.8 10.8 0 0 1 2.45-13.75l38.21-30a16.05 16.05 0 0 0 6-14.08c-.36-4.17-.58-8.33-.58-12.5s.21-8.27.58-12.35a16 16 0 0 0-6.07-13.94l-38.19-30A10.81 10.81 0 0 1 49.48 186l42.77-74a10.81 10.81 0 0 1 13.14-4.59l44.9 18.08a16.11 16.11 0 0 0 15.17-1.75A164.5 164.5 0 0 1 187 111.2a15.94 15.94 0 0 0 8.82-12.14l6.73-47.89A11.08 11.08 0 0 1 213.23 42h85.54a11.11 11.11 0 0 1 10.69 8.87l6.72 47.82a16.07 16.07 0 0 0 9 12.22a155 155 0 0 1 21.46 12.57a16 16 0 0 0 15.11 1.71l44.89-18.07a10.81 10.81 0 0 1 13.14 4.58l42.77 74a10.8 10.8 0 0 1-2.45 13.75l-38.21 30a16.05 16.05 0 0 0-6.05 14.08c.33 4.14.55 8.3.55 12.47"/></svg>';
-  const TITLES = { card: 'My card', wallpaper: 'Wallpaper', sounds: 'Sounds', sim: 'SIM', apps: 'Apps', about: 'About',
+  const TITLES = { card: 'My card', wallpaper: 'Wallpaper', sounds: 'Sounds', sim: 'SIM', blocked: 'Blocked numbers', apps: 'Apps', about: 'About',
     ringtone: PICKS.ringtone.title, messageTone: PICKS.messageTone.title, notifyTone: PICKS.notifyTone.title };
   // What the SIM in this phone is doing (the session's `sim`, from the server: whip_phone/server/sim.lua).
   const SIM_TEXT = { ok: '', nosim: 'No SIM card', locked: 'SIM locked', blank: 'SIM not working' };
@@ -110,6 +112,21 @@
       return here + K.list(rows, { header: st.currentMine ? 'Your other numbers' : 'Your numbers', inset: 58,
         footer: 'Lost a SIM? Lock its number: the card stops working in any phone. Unlock it to use it again.' });
     }
+    if (p === 'blocked') {
+      // The SIM's list, the latest first. Tapping one unblocks it: what it sent while blocked stays hidden.
+      if (!sess.number) return K.empty({ icon: I.block, title: SIM_TEXT[sess.sim] || 'No SIM', text: 'The block list is the SIM\'s: put a SIM in the phone.' });
+      const B = app.blocks;
+      if (!B.loaded) return K.empty({ title: 'Loading…' });
+      const how = 'Block a number from its conversation in Messages, or its page in Phone. They are not told.';
+      if (!B.list.length) return K.empty({ icon: I.block, title: 'No blocked numbers', text: how });
+      const rows = B.list.map((b) => {
+        const c = app.contacts.find(b.number);
+        return K.row({ icon: I.block, label: c ? c.name : K.fmtNumber(b.number), sub: c ? K.fmtNumber(b.number) : `Blocked ${K.fmtWhen(b.time)}`,
+          value: 'Unblock', act: 'unblock', d: { number: b.number }, chev: false, hint: 'Unblock' });
+      });
+      return K.list(rows, { header: `${B.list.length} blocked`, inset: 58,
+        footer: 'Their texts and calls don\'t reach this SIM. Unblocked, what they sent meanwhile stays hidden. ' + how });
+    }
     if (p === 'apps') {
       const mods = app.modules();
       return K.list(mods.map((m) => K.row({ icon: I.apps, label: m.name, sub: `${m.external ? 'Module from another resource' : 'Built-in module'}${m.version ? ' · v' + m.version : ''}`, value: '' })), { header: `${mods.length} installed`, inset: 58, footer: 'Apps are modules: removing one removes the app, the phone keeps working.' });
@@ -134,7 +151,8 @@
       `<div class="list"><button class="row profile${sel === 'card' ? ' sel' : ''}" data-act="page" data-p="card" data-hint="My card">` +
       `${K.avatar({ name: myName(sess), size: 58, pic: card.picture, frame: card.frame })}<div class="r-main"><b>${K.esc(myName(sess) || 'Your phone')}</b>` +
       `<div class="r-sub">${K.esc(simLine(sess))}${sess.number && sess.mine ? ' · My card' : ''}</div></div>${I.chev}</button></div>` +
-      K.list([r('sim', I.call, 'SIM', sess.number ? '' : (SIM_TEXT[sess.sim] || 'No SIM'))]) +
+      K.list([r('sim', I.call, 'SIM', sess.number ? '' : (SIM_TEXT[sess.sim] || 'No SIM')),
+        r('blocked', I.block, 'Blocked numbers', sess.number && app.blocks.list.length ? String(app.blocks.list.length) : '')]) +
       K.list([r('wallpaper', I.sun, 'Wallpaper', ''), r('sounds', I.speaker, 'Sounds', labelOf(S, 'ringtone', S.get('ringtone')))]) +
       K.list([K.row({ icon: I.bell, label: 'Do Not Disturb', sub: 'Only calls get through', toggle: !!S.get('dnd'), act: 'dnd', chev: false, hint: 'Toggle' })]) +
       K.list([r('apps', I.apps, 'Apps', String(app.modules().length)), r('about', I.info, 'About', '')]));
@@ -167,8 +185,9 @@
 .cd-zoom input[type=range][data-bind]::-webkit-slider-thumb{margin-top:-11px}
 .cd-why{padding:0 16px 8px;color:var(--red);font-size:13.5px}
 .cd-acts{display:flex;flex-wrap:wrap;gap:10px;padding:4px 16px 18px}
+.row[data-act="unblock"] .r-val{color:var(--accent)}
 `,
-    state: () => ({ page: null, sim: null, callVol: null, card: null }),
+    state: () => ({ page: null, sim: null, callVol: null, card: null, unblocking: false }),
 
     route: (app) => app.state.page || '',
     // My card's two boxes, as they are typed, and its zoom slider as it moves
@@ -212,6 +231,7 @@
         if (!PICKS[d.p]) app.settings.stopPreview();   // left a sound's list: its preview stops
         app.state.page = d.p || null;
         if (d.p === 'sim') return loadNumbers(app);
+        if (d.p === 'blocked') return app.blocks.load(true);
         if (d.p === 'sounds') return loadCallVol(app);   // (it may have changed in Server Settings)
         if (d.p === 'card') openCard(app);
       },
@@ -250,6 +270,13 @@
       /** the call volume: the voice system keeps it; the page shows what it kept */
       async callVol(app, d) { app.state.callVol = await app.callVolume(Number(d.v)); },
       dnd(app) { app.settings.set('dnd', !app.settings.get('dnd')); },
+      async unblock(app, d) {
+        if (app.state.unblocking) return;
+        app.state.unblocking = true;
+        try { await app.blocks.remove(d.number); app.toast('Number unblocked'); }   // -> whip_phone:blocks:remove
+        catch (e) { app.toast(e.reason || 'Could not change that'); }
+        app.state.unblocking = false;
+      },
       async lock(app, d) {
         try {
           await app.request('lock', { number: d.number, locked: d.locked === '1' });   // -> whip_phone:settings:lock

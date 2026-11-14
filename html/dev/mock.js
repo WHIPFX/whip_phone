@@ -180,6 +180,9 @@ export function createMock({ modules = ['phone', 'messages', 'bank', 'business',
   let home = null;
   try { home = JSON.parse(localStorage.getItem('whip_phone_preview_home') || 'null'); } catch (e) { home = null; }
   const calls = {};
+  // the SIM's block list (server/blocks.lua): a blocked number's texts and calls never reach the page
+  let blocks = [];
+  const isBlocked = (n) => blocks.some((b) => b.number === digits(n));
 
   const push = (module, event, data) => bridge && bridge.emit({ type: 'push', module, event, data });
   let skillTest = null;   // the Skill Check Tester's phone game playing now (whip_phone:skilltest:run)
@@ -230,6 +233,16 @@ export function createMock({ modules = ['phone', 'messages', 'bank', 'business',
       n.locked = !!locked;
       return true;
     },
+    // the block list (server/blocks.lua), the latest first
+    'whip_phone:blocks:list': () => blocks,
+    'whip_phone:blocks:add': ({ number }) => {
+      const n = digits(number);
+      if (n.length !== 10) throw new Error('A phone number is 10 digits');
+      if (n === me.number) throw new Error('You cannot block your own number');
+      if (!isBlocked(n)) blocks.unshift({ number: n, time: S() });
+      return true;
+    },
+    'whip_phone:blocks:remove': ({ number }) => { const n = digits(number); blocks = blocks.filter((b) => b.number !== n); return true; },
     // ---- the Skill Check Tester (server/skilltest.lua; a developer app): config.lua's numbers, and a test played as
     // Lua plays it (client/main.lua): a phone game held on the phone, the ring answered after a moment
     'whip_phone:skilltest:settings': () => ({ ring: SKILL_RING, games: SKILL_GAMES }),
@@ -450,6 +463,7 @@ export function createMock({ modules = ['phone', 'messages', 'bank', 'business',
   };
 
   function receive(number, text) {
+    if (isBlocked(number)) return;   // kept from this SIM, as the server does
     const m = { id: ++nextId, me: false, text, time: S() };
     (msgs[number] = msgs[number] || []).push(m);
     unread[number] = (unread[number] || 0) + 1;
@@ -499,7 +513,8 @@ export function createMock({ modules = ['phone', 'messages', 'bank', 'business',
       bridge && bridge.emit({ type: 'notify', notification: { app: 'bank', title: a.label, text: 'Received $250 · Pizza money', kind: 'success', args: { id: 11 } } });
     },
     incomingCall() {
-      const c = pick(contacts.filter((x) => x.number !== '6895550192')), id = ++nextId;
+      const c = pick(contacts.filter((x) => x.number !== '6895550192' && !isBlocked(x.number))), id = ++nextId;
+      if (!c) return;
       calls[id] = { number: c.number, dir: 'in' };
       push('phone', 'incoming', { callId: id, number: c.number });
       setTimeout(() => { if (calls[id] && !calls[id].start) endCall(id, 'missed', 'Missed call'); }, 20000);

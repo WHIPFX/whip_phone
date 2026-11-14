@@ -1,6 +1,9 @@
 // Messages: threads, chats and new messages. UI only: threads and messages come from the framework
 // (whip_phone:messages:*, see docs/FRAMEWORK.md) and new texts arrive as pushes. Contact names come from the shared
 // contacts service. Delete this folder and the phone simply has no Messages app.
+// BLOCKING (14 Nov 2026): a conversation's info button blocks or unblocks its number (the shared block list,
+// app.blocks). The server keeps a blocked number's texts from this SIM, so nothing here hides any; a lore character's
+// number (noBlock) and the SIM's own get no button.
 (() => {
   const { kit: K, icons: I } = window.WhipPhone;
   const GLYPH = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 4c4.7 0 8.5 3 8.5 6.8S16.7 17.6 12 17.6c-.9 0-1.8-.1-2.6-.3L5.6 19.4l1.1-3.3C4.8 14.9 3.5 13 3.5 10.8 3.5 7 7.3 4 12 4z"/></svg>';
@@ -25,7 +28,7 @@
   async function openThread(app, number) {
     const s = app.state, n = digits(number);
     if (!n) return;
-    s.open = n; s.compose = null; s.draft = s.drafts[n] || '';
+    s.open = n; s.compose = null; s.sheet = null; s.draft = s.drafts[n] || '';
     const t = thread(s, n);
     if (t && t.unread) { t.unread = 0; app.request('read', { number: n }).catch(() => {}); }
     if (!s.msgs[n]) {
@@ -58,6 +61,32 @@
       if (r && r.time) msg.time = r.time;
     } catch (e) { msg.pending = false; msg.failed = true; app.toast(e.reason || 'Message not sent'); }
   }
+  /** a number this phone may block: not the SIM's own, and not a lore character's (the server says which: noBlock) */
+  function canBlock(app, number) {
+    const n = digits(number), t = thread(app.state, n), c = app.contacts.find(n);
+    return !!n && n !== digits(app.session.number) && !(t && t.noBlock) && !(c && c.noBlock);
+  }
+  /** the info sheet: block the conversation's number, or unblock it */
+  function sheet(app) {
+    const s = app.state, n = s.sheet && s.sheet.number;
+    if (!n) return '';
+    const blocked = app.blocks.has(n), busy = s.sheet.busy;
+    const text = blocked ? 'Their texts and calls reach this SIM again. What they sent while blocked stays hidden.'
+      : 'Their texts and calls stop reaching this SIM. They are not told: to them, texts send and calls ring out.';
+    return K.sheet({ title: app.contacts.name(n), close: 'closeSheet', body: `<p class="ms-p">${K.esc(text)}</p>` +
+      `<div class="ms-btns">${K.button({ label: 'Cancel', act: 'closeSheet', kind: 'gray' })}` +
+      `${K.button({ label: busy ? '…' : blocked ? 'Unblock' : 'Block', act: blocked ? 'unblock' : 'block', kind: blocked ? '' : 'red', d: { number: n } })}</div>` });
+  }
+  async function setBlocked(app, number, on) {
+    const s = app.state;
+    if (!s.sheet || s.sheet.busy) return;
+    s.sheet.busy = true;
+    try {
+      await (on ? app.blocks.add(number) : app.blocks.remove(number));
+      app.toast(on ? 'Number blocked' : 'Number unblocked');
+      s.sheet = null;
+    } catch (e) { app.toast(e.reason || 'Could not change that'); if (s.sheet) s.sheet.busy = false; }
+  }
 
   // ---------------------------------------------------------------- screens
   function list(app, sel) {
@@ -88,8 +117,10 @@
         return sep + K.bubble({ me: !!m.me, text: m.text, fresh: !!m.fresh, failed: !!m.failed });
       }).join('') + (() => { const l = msgs[msgs.length - 1]; return l && l.me ? `<div class="read">${l.failed ? 'Not delivered' : l.pending ? 'Sending…' : 'Delivered'}</div>` : ''; })() + '</div>';
     }
-    const head = `<div class="chat-h">${withBack ? `<button class="back" data-act="closeThread" data-hint="Back">${I.back}</button>` : ''}` +
-      `${K.avatar({ name: c ? name : '', size: 44, pic: c && c.picture, frame: c && c.pictureFrame })}<div class="ch-n">${K.esc(name)}</div>${hasPhone ? `<button class="ch-call" data-act="call" data-number="${K.esc(number)}" data-hint="Call">${CALL}</button>` : ''}</div>`;
+    if (app.blocks.has(number)) body += `<div class="ms-blocked">${I.block}You blocked this number</div>`;
+    const info = canBlock(app, number) ? `<button class="ch-info" data-act="info" data-number="${K.esc(number)}" data-hint="Info">${I.info}</button>` : '';
+    const head = `<div class="chat-h${info && hasPhone ? ' two' : ''}">${withBack ? `<button class="back" data-act="closeThread" data-hint="Back">${I.back}</button>` : ''}` +
+      `${K.avatar({ name: c ? name : '', size: 44, pic: c && c.picture, frame: c && c.pictureFrame })}<div class="ch-n">${K.esc(name)}</div>${hasPhone ? `<button class="ch-call" data-act="call" data-number="${K.esc(number)}" data-hint="Call">${CALL}</button>` : ''}${info}</div>`;
     const quick = app.console ? `<div class="quick">${QUICK.map((q) => `<button class="qr" data-act="quick" data-text="${K.esc(q)}" data-hint="Send">${K.esc(q)}</button>`).join('')}</div>` : '';
     return head + `<div class="scroll" data-scroll data-bottom><div>${body}</div></div>` + quick + K.composer({ bind: 'draft', value: s.draft, placeholder: 'Message', send: 'send' });
   }
@@ -118,15 +149,23 @@
 .thread.sel .t-time,.thread.sel .t-prev{color:rgba(255,255,255,.8)}
 .chat-h .ch-call{position:absolute;right:14px;top:8px;width:34px;height:34px;border-radius:50%;display:grid;place-items:center;color:var(--accent)}
 .chat-h .ch-call svg{width:22px;height:22px}
+.chat-h .ch-info{position:absolute;right:14px;top:8px;width:34px;height:34px;border-radius:50%;display:grid;place-items:center;color:var(--accent)}
+.chat-h .ch-info svg{width:23px;height:23px}
+.chat-h.two .ch-call{right:52px}
+.ms-blocked{display:flex;align-items:center;justify-content:center;gap:6px;font-size:12.5px;color:var(--text2);padding:2px 16px 12px}
+.ms-blocked svg{width:14px;height:14px}
+.ms-p{font-size:14.5px;color:var(--text2);line-height:1.4;margin:0 2px 16px}
+.ms-btns{display:flex;gap:10px}
+.ms-btns .btn{flex:1}
 .m-messages .split>.main .chat-h{padding-top:6px}
 .m-messages .msgs .read{margin-top:2px}
 `,
-    state: () => ({ threads: [], loaded: false, open: null, msgs: {}, draft: '', drafts: {}, compose: null, query: '' }),
+    state: () => ({ threads: [], loaded: false, open: null, msgs: {}, draft: '', drafts: {}, compose: null, query: '', sheet: null }),
 
     // A new character or SIM: everything of the last one goes, as Bank and Business do (audit 16, CLI-1: its
     // conversations showed until the read landed, and its drafts filled in for the same number under the new SIM).
     session(app) {
-      Object.assign(app.state, { threads: [], loaded: false, open: null, msgs: {}, draft: '', drafts: {}, compose: null, query: '' });
+      Object.assign(app.state, { threads: [], loaded: false, open: null, msgs: {}, draft: '', drafts: {}, compose: null, query: '', sheet: null });
       loadThreads(app);
     },
     open(app, args = {}) {
@@ -139,6 +178,7 @@
     route: (app) => (app.state.compose ? 'compose' : app.state.open ? 'chat' : 'list'),
     back(app) {
       const s = app.state;
+      if (s.sheet) { s.sheet = null; return true; }
       if (s.compose) { s.compose = null; return true; }
       if (s.open) { s.open = null; return true; }
       return false;
@@ -159,18 +199,19 @@
     render(app, v) {
       const s = app.state;
       if (s.compose) return K.screen('compose', compose(app), { slide: true });
+      const sh = s.open && s.sheet && s.sheet.number === s.open ? sheet(app) : '';   // (only over its own conversation)
       if (v.size === 'tablet') {
         const sel = s.open;   // all displays render at once, so never auto-open: that would open a chat on the phone too
         const main = sel ? chat(app, sel, false) : K.empty({ icon: GLYPH, title: s.threads.length ? 'Pick a conversation' : 'No messages yet', action: { label: 'New message', act: 'compose' } });
-        return K.screen('split', K.split(list(app, sel), main, sel ? 'c' + sel : 'none'));
+        return K.screen('split', K.split(list(app, sel), main, sel ? 'c' + sel : 'none') + sh);
       }
-      if (s.open) return K.screen('c-' + s.open, chat(app, s.open, true), { slide: true });
+      if (s.open) return K.screen('c-' + s.open, chat(app, s.open, true) + sh, { slide: true });
       return K.screen('list', list(app, null));
     },
 
     actions: {
       open(app, d) { return openThread(app, d.number); },
-      closeThread(app) { app.state.open = null; },
+      closeThread(app) { app.state.open = null; app.state.sheet = null; },
       compose(app) { app.state.compose = { to: '' }; },
       cancelCompose(app) { app.state.compose = null; },
       pick(app, d) { return openThread(app, d.number); },
@@ -184,6 +225,10 @@
       send(app) { return send(app, app.state.draft); },
       quick(app, d) { return send(app, d.text); },
       call(app, d) { app.open('phone', { number: d.number, call: true }); },
+      info(app, d) { if (canBlock(app, d.number)) app.state.sheet = { number: digits(d.number), busy: false }; },
+      closeSheet(app) { app.state.sheet = null; },
+      block(app, d) { return setBlocked(app, d.number, true); },
+      unblock(app, d) { return setBlocked(app, d.number, false); },
     },
     bind: {
       draft(app, v) { const s = app.state; s.draft = v.slice(0, 500); if (s.open) s.drafts[s.open] = s.draft; },

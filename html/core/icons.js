@@ -59,6 +59,7 @@ export const I = {
   back: GLYPH.back,
   apps: sf('<rect x="4" y="4" width="6.5" height="6.5" rx="1.8"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.8"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.8"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.8"/>'),
   info: sv('<circle cx="12" cy="12" r="8.5"/><path d="M12 11v5.5M12 7.6v.1"/>', 2.1),
+  block: sv('<circle cx="12" cy="12" r="8.5"/><path d="M6 6l12 12"/>', 2.1),
   ask: sv('<path d="M8.6 8.6a3.4 3.4 0 1 1 4.9 3.05c-.95.45-1.5 1.25-1.5 2.25v.7M12 18.4v.1"/>', 2.6),
   missed: sv('<path d="M5 6l6 6 4-4M15 8h-4V4"/><path d="M4.5 17.5a11 11 0 0 1 15 0"/>'),
   out: sv('<path d="M8 16L18 6M10 6h8v8"/>'),

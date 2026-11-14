@@ -14,6 +14,9 @@ another resource.
   with its contacts and messages. Its owner can lock a number so its SIM stops working.
 - **Make it yours.** Wallpapers, ringtones and alert sounds, Do Not Disturb, a home screen you arrange, and a contact
   card with your name and picture.
+- **Block a number.** Its texts and calls stop reaching your SIM, and its owner isn't told: their texts show as sent
+  and their calls ring out. Block from a conversation in Messages or a number's page in Phone, and unblock in
+  **Settings > Blocked numbers**. Lore characters can't be blocked.
 - **Notifications.** They peek up from the corner while the phone is put away, and a ringing call can be answered
   without taking it out.
 - **Mouse, keyboard or controller.** The layout follows what the player is using.
@@ -32,7 +35,7 @@ The phone's core has no apps of its own. Each app is a module, and these come wi
 | Messages | Text conversations |
 | Bank | Accounts and their activity, transfers, opening savings and shared accounts, and sharing one |
 | Business | Your jobs and duty and, for ranks that may, hiring, firing and ranks |
-| Settings | Your contact card, wallpaper, sounds, SIM, Do Not Disturb and installed apps |
+| Settings | Your contact card, wallpaper, sounds, SIM, blocked numbers, Do Not Disturb and installed apps |
 
 `Config.Modules` lists the ones that load: `phone`, `messages`, `bank`, `business`, `settings` and `skillcheck`.
 Take an id out and that app is gone from every phone. The phone works with any set, or none. Keep `skillcheck` for

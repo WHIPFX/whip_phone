@@ -29,6 +29,7 @@ server_scripts {
     'server/main.lua',        -- exports: Notify, Push, Open, Close, SetSession, ReloadCache (the admin Phones panel)
     'server/contract.lua',    -- the phone's data: session, settings, contacts, messages, the SIM page
     'server/calls.lua',       -- calls and Recents
+    'server/blocks.lua',      -- the block list: numbers a SIM gets no texts or calls from
     'server/lore.lua',        -- lore characters' numbers (whip_core's Director) and the Lore cards: Give Contact, Send Text, Phone Call
     'server/card.lua',        -- a player's own contact card: their name and profile picture (Settings > My card)
     'server/people.lua',      -- who is on and who is near (picking a person: sharing, hiring)

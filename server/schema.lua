@@ -12,8 +12,11 @@
 --                   A LORE CHARACTER's number (whip_core's Director, server/lore.lua here) has no character
 --                   (charId NULL) and names it in `loreKey`; no SIM card ever carries one.
 --   phone_contacts  a number's contacts (the SIM's, not the character's)
---   phone_messages  texts between two numbers
---   phone_calls     calls between two numbers, for Recents
+--   phone_messages  texts between two numbers. `blocked`: sent while the receiving SIM blocked the sender
+--                   (server/blocks.lua), so the receiver never sees it, even after an unblock
+--   phone_calls     calls between two numbers, for Recents. `blocked`: the same for a call, kept out of the
+--                   callee's Recents
+--   phone_blocks    the numbers each SIM blocked (server/blocks.lua): the SIM's, like its contacts
 --
 -- whip_core's admin Phones panel (server/devtools.lua) reads and writes the same tables.
 
@@ -90,6 +93,7 @@ local function migrate()
         `receiverNumber` CHAR(10) NOT NULL,
         `content` VARCHAR(500) NOT NULL,
         `readAt` TIMESTAMP NULL DEFAULT NULL,
+        `blocked` TINYINT(1) NOT NULL DEFAULT 0,
         `createdAt` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
         PRIMARY KEY (`messageId`),
         KEY `idx_sender` (`senderNumber`, `createdAt`),
@@ -107,23 +111,50 @@ local function migrate()
         `startedAt` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
         `answeredAt` TIMESTAMP NULL DEFAULT NULL,
         `endedAt` TIMESTAMP NULL DEFAULT NULL,
+        `blocked` TINYINT(1) NOT NULL DEFAULT 0,
         PRIMARY KEY (`callId`),
         KEY `idx_caller` (`callerNumber`, `startedAt`),
         KEY `idx_callee` (`calleeNumber`, `startedAt`),
         CONSTRAINT `fk_call_caller` FOREIGN KEY (`callerNumber`) REFERENCES `phone_numbers` (`phoneNumber`) ON DELETE CASCADE,
         CONSTRAINT `fk_call_callee` FOREIGN KEY (`calleeNumber`) REFERENCES `phone_numbers` (`phoneNumber`) ON DELETE CASCADE
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci]])
+
+    -- The block list (14 Nov 2026, server/blocks.lua). The texts and calls that came while blocked carry `blocked`: kept,
+    -- for the sender's own thread and Recents, and left out of the blocker's. Every query that reads them names the
+    -- column, so it is here with the tables, not a step of its own.
+    if not hasColumn('phone_messages', 'blocked') then
+        MySQL.query.await('ALTER TABLE `phone_messages` ADD COLUMN `blocked` TINYINT(1) NOT NULL DEFAULT 0 AFTER `readAt`')
+    end
+    if not hasColumn('phone_calls', 'blocked') then
+        MySQL.query.await('ALTER TABLE `phone_calls` ADD COLUMN `blocked` TINYINT(1) NOT NULL DEFAULT 0 AFTER `endedAt`')
+    end
+    -- One row a block: the SIM's number and the number it blocked. (The admin panel retires a number rather than
+    -- deleting its row, so these keys rarely fire: blocks.lua moves a retired number's blocks itself.)
+    MySQL.query.await([[CREATE TABLE IF NOT EXISTS `phone_blocks` (
+        `phoneNumber` CHAR(10) NOT NULL,
+        `blockedNumber` CHAR(10) NOT NULL,
+        `createdAt` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (`phoneNumber`, `blockedNumber`),
+        KEY `idx_blocked` (`blockedNumber`),
+        CONSTRAINT `fk_blocks_phone` FOREIGN KEY (`phoneNumber`) REFERENCES `phone_numbers` (`phoneNumber`) ON DELETE CASCADE,
+        CONSTRAINT `fk_blocks_blocked` FOREIGN KEY (`blockedNumber`) REFERENCES `phone_numbers` (`phoneNumber`) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci]])
 end
 
 --- The indexes the busy queries need (audit 20, PHN-2, PHN-6, PHN-7): a conversation each way, the Messages list and
 --- its unread counts, Recents each side, and who saved a number (server/card.lua). Each its own try: one refused costs
 --- that query's speed, never the phone. (On a big table the first start after this takes a moment to build them.)
+--- The `_shown` two are what a number received less what came while blocked (server/blocks.lua): the Messages list, its
+--- unread counts, a conversation's incoming half and the callee's side of Recents, without stepping over every blocked
+--- row a pest piled up.
 local INDEXES = {
-    { 'phone_messages', 'idx_pair',      '(`senderNumber`, `receiverNumber`, `messageId`)' },
-    { 'phone_messages', 'idx_pair_in',   '(`receiverNumber`, `senderNumber`, `messageId`)' },
-    { 'phone_calls',    'idx_caller_id', '(`callerNumber`, `callId`)' },
-    { 'phone_calls',    'idx_callee_id', '(`calleeNumber`, `callId`)' },
-    { 'phone_contacts', 'idx_contact',   '(`contactNumber`)' },
+    { 'phone_messages', 'idx_pair',         '(`senderNumber`, `receiverNumber`, `messageId`)' },
+    { 'phone_messages', 'idx_pair_in',      '(`receiverNumber`, `senderNumber`, `messageId`)' },
+    { 'phone_messages', 'idx_shown_in',     '(`receiverNumber`, `blocked`, `senderNumber`, `messageId`)' },
+    { 'phone_calls',    'idx_caller_id',    '(`callerNumber`, `callId`)' },
+    { 'phone_calls',    'idx_callee_id',    '(`calleeNumber`, `callId`)' },
+    { 'phone_calls',    'idx_callee_shown', '(`calleeNumber`, `blocked`, `callId`)' },
+    { 'phone_contacts', 'idx_contact',      '(`contactNumber`)' },
 }
 local function migrateIndexes()
     for _, ix in ipairs(INDEXES) do
@@ -166,6 +197,9 @@ MySQL.ready(function()
     PhoneDB.lore = lok
     if not lok then print('^3[whip_phone] lore characters get no phone numbers: ' .. tostring(lerr) .. '^0') end
     if not Numbers.load() then return end   -- it printed why; the phone stays off, as when this threw
+    -- The block lists after the numbers (a list on a retired number follows it). Off rather than without them: a
+    -- phone that let blocked numbers through would ring a pest back in.
+    if not Blocks.load() then return end
     PhoneDB.ready = true
     if PhoneDB.lore and LorePhones then LorePhones.syncAll() end
 end)

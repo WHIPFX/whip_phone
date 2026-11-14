@@ -131,7 +131,8 @@ end
 
 -- ---------------------------------------------------------------- messages: who receives a text
 --- Push a new text to whoever holds the receiving number's SIM now (if anyone does). The client event,
---- not this resource's own Push export (no self-exports).
+--- not this resource's own Push export (no self-exports). A text the receiving SIM blocked never comes here: the one
+--- who wrote its row decides (messages:send below; a lore character's text can't be blocked, server/blocks.lua).
 local function deliver(toNumber, msg)
     local holder = Sim.holderOf(toNumber)
     if not holder then return end
@@ -238,7 +239,9 @@ Whip.register(function()
         for i, r in ipairs(rows) do
             -- Its picture: a lore character's (server/lore.lua), else what its owner put on their card (server/card.lua).
             local pic, frame = PhoneCards.pictureOf(r.contactNumber)
-            out[i] = { id = r.contactId, name = r.contactName, number = r.contactNumber, picture = pic, pictureFrame = frame }
+            out[i] = { id = r.contactId, name = r.contactName, number = r.contactNumber, picture = pic, pictureFrame = frame,
+                       -- a lore character's number: the page offers no Block for it (server/blocks.lua)
+                       noBlock = Numbers.loreOf(r.contactNumber) ~= nil or nil }
         end
         return out
     end)
@@ -284,12 +287,17 @@ Whip.register(function()
     end)
 
     -- ---------------------------------------------------------------- Messages module
-    -- -> { { number, unread, last = { text, time, me } }, ... } newest first
+    -- -> { { number, unread, last = { text, time, me }, noBlock }, ... } newest first. noBlock: a lore character's
+    -- number, which the page offers no Block for (server/blocks.lua)
     --
     -- ONE ROW PER CONVERSATION: the latest message with each other number, then each one's unread count. Built from the
     -- number's newest 300 messages, one busy conversation (or a spammer: 2 texts a second) pushed every other one, and
     -- its unread badge, off the list (audit 20, PHN-2). THREADS_MAX conversations, newest first. Both halves of the
-    -- union use an index (schema.lua: idx_pair, idx_pair_in), not every message the number ever had.
+    -- union use an index (schema.lua: idx_pair, idx_shown_in), not every message the number ever had.
+    --
+    -- WHAT CAME WHILE THE SENDER WAS BLOCKED IS NOT HERE (server/blocks.lua): not as a conversation, its last message,
+    -- or an unread count, after an unblock too. What this number sent is all here: a blocked sender sees their own
+    -- texts as sent.
     local THREADS_MAX = 200
     cb('whip_phone:messages:threads', LIGHT, function(source, player)
         local me = Sim.numberOf(source, player)
@@ -299,7 +307,7 @@ Whip.register(function()
                     WHERE senderNumber = ? GROUP BY receiverNumber
                 UNION ALL
                 SELECT senderNumber AS other, MAX(messageId) AS messageId FROM phone_messages
-                    WHERE receiverNumber = ? GROUP BY senderNumber
+                    WHERE receiverNumber = ? AND blocked = 0 GROUP BY senderNumber
             ) AS sides GROUP BY other ORDER BY last DESC LIMIT ?]], { me, me, THREADS_MAX })
         if not ok then return false, NET_DOWN end
         heads = heads or {}
@@ -311,7 +319,7 @@ Whip.register(function()
             FROM phone_messages WHERE messageId IN (%s)]]):format(table.concat(marks, ',')), ids)
         if not okLast then return false, NET_DOWN end
         local okUnread, unread = db('query', [[SELECT senderNumber, COUNT(*) AS n FROM phone_messages
-            WHERE receiverNumber = ? AND readAt IS NULL GROUP BY senderNumber]], { me })
+            WHERE receiverNumber = ? AND blocked = 0 AND readAt IS NULL GROUP BY senderNumber]], { me })
         if not okUnread then return false, NET_DOWN end
 
         local byId, unreadFrom = {}, {}
@@ -323,7 +331,8 @@ Whip.register(function()
             if r then
                 local mine = r.senderNumber == me
                 order[#order + 1] = { number = h.other, unread = h.other ~= me and unreadFrom[h.other] or 0,
-                                      last = { text = r.content, time = secs(r.t), me = mine } }
+                                      last = { text = r.content, time = secs(r.t), me = mine },
+                                      noBlock = Numbers.loreOf(h.other) ~= nil or nil }
             end
         end
         return order
@@ -338,12 +347,13 @@ Whip.register(function()
         -- OR walked every message the number had and sorted them all before its LIMIT (audit 20, PHN-7).
         local limit = Config.MessageHistory or 300
         local q = [[SELECT messageId, senderNumber, content, UNIX_TIMESTAMP(createdAt) AS t FROM phone_messages
-            WHERE senderNumber = ? AND receiverNumber = ? ORDER BY messageId DESC LIMIT ?]]
-        local ok, sent = db('query', q, { me, other, limit })
+            WHERE senderNumber = ? AND receiverNumber = ?%s ORDER BY messageId DESC LIMIT ?]]
+        local ok, sent = db('query', q:format(''), { me, other, limit })
         if not ok then return false, NET_DOWN end
         local rows = sent or {}
         if other ~= me then
-            local okIn, got = db('query', q, { other, me, limit })
+            -- Their half without what they sent while this SIM blocked them (server/blocks.lua), after an unblock too.
+            local okIn, got = db('query', q:format(' AND blocked = 0'), { other, me, limit })
             if not okIn then return false, NET_DOWN end
             for _, r in ipairs(got or {}) do rows[#rows + 1] = r end
             table.sort(rows, function(a, b) return tonumber(a.messageId) > tonumber(b.messageId) end)
@@ -358,6 +368,9 @@ Whip.register(function()
 
     -- args = { number, text } -> { id, time }. Whoever holds the receiving SIM now gets it at once; it is
     -- kept for them either way.
+    -- BLOCKED (server/blocks.lua): the receiving SIM blocked this number. It is kept, marked, for the sender's own
+    -- thread, and goes no further: no push, nothing on the blocker's list. The sender gets the same answer as for any
+    -- text, so nothing tells them.
     cb('whip_phone:messages:send', WRITE, function(source, player, args)
         local me, why = Sim.numberOf(source, player)
         if not me then return false, why end
@@ -368,12 +381,14 @@ Whip.register(function()
         local text = tostring(args.text or ''):gsub('^%s+', ''):gsub('%s+$', '')
         if text == '' then return false, 'Nothing to send' end
         if #text > 500 then return false, 'A message is 500 characters at most' end
+        local blocked = Blocks.has(to, me)
         local ok, id = db('insert',
-            'INSERT INTO phone_messages (senderNumber, receiverNumber, content) VALUES (?, ?, ?)', { me, to, text })
+            'INSERT INTO phone_messages (senderNumber, receiverNumber, content, blocked) VALUES (?, ?, ?, ?)',
+            { me, to, text, blocked and 1 or 0 })
         if not ok then return false, NET_DOWN end
         if not id then return false, 'Could not send that' end
         local now = os.time()
-        if to ~= me then deliver(to, { id = id, number = me, text = text, time = now }) end
+        if to ~= me and not blocked then deliver(to, { id = id, number = me, text = text, time = now }) end
         return { id = id, time = now }
     end)
 

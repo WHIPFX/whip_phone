@@ -108,6 +108,7 @@ After every action, binding, push and resolved request, the phone re-renders. Mu
 | `app.attention(true / false)` | raise a put-away phone into view (a call answered from its capsule), and let it drop again. |
 | `app.ring(kind)` | the call's sound: `'ring'` (ringing in: the SIM's ringtone, over and over), `'back'` (calling out: the line ringing at the other end) or `null` (quiet). The Phone module sets it at every change of a call. |
 | `app.contacts` | shared contacts: `list`, `sorted`, `loaded`, `load()`, `find(number)`, `name(number)`, `save(c)`, `remove(id)`. |
+| `app.blocks` | the SIM's block list: `list` (`{ number, time }`), `loaded`, `load()`, `has(number)`, `add(number)`, `remove(number)`. `add` and `remove` reject with `err.reason` when the server refuses. The server keeps blocked numbers' texts and calls away, so there's nothing to filter. |
 | `app.settings` | `get(key)` and `set(key, value)` for wallpaper / dnd / ringtone / messageTone / notifyTone / soundVolume; `wallpapers()`; `sounds('ringtone' or 'alert')` the list to pick from, `preview(kind, id)` to hear one, `stopPreview()`. `get('layout')` is always `'auto'` (the layout follows the input; `app.console` says which one is showing). |
 | `app.session` | `{ number, name }`. |
 | `app.console` | `true` in the controller layout. |
