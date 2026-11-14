@@ -243,7 +243,7 @@ Whip.register(function()
             local n = text(tostring(args.number), 12):upper():gsub('%s', '')
             if n:match('^%d%d%d%d%d%d$') then n = 'WB-' .. n end
             if not n:match('^WB%-%d%d%d%d%d%d$') then return false, 'An account number looks like WB-000000' end
-            local acc = exports.whip_core:GetBankAccountByNumber(n)
+            local acc = exports.whip_core:GetBankAccount({ number = n })
             if not acc then return false, ('There is no account %s'):format(n) end
             to = acc.accountId
         else
@@ -396,7 +396,7 @@ Whip.register(function()
         local label = text(args.label, 50)
         if label == '' then return false, 'Give the account a name' end
         if args.type ~= 'savings' and args.type ~= 'shared' then return false, 'Pick savings or shared' end
-        local acc, why = exports.whip_core:CreateBankAccount(source, label, args.type)
+        local acc, why = exports.whip_core:CreateBankAccount(source, label, { type = args.type })
         if not acc then return false, why or 'The bank refused' end
         return { id = acc.accountId, number = acc.accountNumber }
     end)

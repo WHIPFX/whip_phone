@@ -220,8 +220,8 @@ The Business app is whip_core's jobs, asked with the player as `by` (`server/bus
 
 **What the client does for you:**
 - **Focus:** `SetNuiFocus` with `SetNuiFocusKeepInput`, dropped while the player types.
-- **whip_core:** `SetUIOpen(true, 'phone', { keepHud = true })` (chat and prompts make way; the HUD stays up), and `BlockControls('whip_phone', { groups = Config.BlockControls })`.
-- **The HUD makes room:** the page reports where the phone will sit (`area`, from html/core/duo.js), and the client hands it to whip_core's `SetUIArea`. Its vehicle dial moves up over notifications peeking from the corner, left beside the phone, and fades while the tablet leaves it no room.
+- **whip_core:** `SetScreenOpen(true, 'phone', { keepHud = true })` (chat and prompts make way; the HUD stays up), and `BlockControls('whip_phone', { groups = Config.BlockControls })`.
+- **The HUD makes room:** the page reports where the phone will sit (`area`, from html/core/duo.js), and the client hands it to whip_core's `SetScreenArea`. Its vehicle dial moves up over notifications peeking from the corner, left beside the phone, and fades while the tablet leaves it no room.
 - **Controller:** read in Lua by whip_core's `Whip.padScreen` and forwarded as `cmd` messages, since FiveM's browser has no Gamepad API. D-pad up opens the phone (`RegisterPadAction('phone')`).
 - **In hand:** whip_core's `phone` emote while the phone is out, swapped for `tablet` while it is unfolded (`Config.Emotes`). A player already in another emote is left alone. A drawn weapon is put away first (whip_core's `FreeHands`).
 - **Death:** the call is hung up (server/calls.lua, the other side hears it end) and the phone is put away. It does not open again until the player is back up.

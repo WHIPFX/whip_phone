@@ -49,7 +49,7 @@ Whip.register(function()
     })
     if not ok then print('[whip_phone] could not register the SIM card item: ' .. tostring(why)) end
 
-    ok, why = exports.whip_core:RegisterItemDefaultMeta(CARD, newCard, { forBuyer = true })
+    ok, why = exports.whip_core:RegisterItemDefaultMetadata(CARD, newCard, { forBuyer = true })
     if not ok then print('[whip_phone] SIM cards will be blank: ' .. tostring(why)) end
 
     ok, why = exports.whip_core:RegisterPanelItem(PHONE, {

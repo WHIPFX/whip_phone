@@ -22,7 +22,7 @@ end
 --- Every lore character in use has a number (whip_phone starting, whip_core back).
 function LorePhones.syncAll()
     if not PhoneDB.ready or not PhoneDB.lore then return end
-    local list = Whip.core:ListLoreCharacters()
+    local list = Whip.core:GetLoreCharacters()
     for _, c in ipairs(type(list) == 'table' and list or {}) do
         if type(c) == 'table' and type(c.key) == 'string' and not Numbers.forLore(c.key) then
             say('^3%s has no number: the database refused it^7', c.key)
@@ -315,7 +315,7 @@ Whip.command('lorecall', { dev = true, console = false }, function(src, args)
     local bad = recordingProblem(url)
     if bad then return tell(bad .. '. Use: /lorecall <@resource/file.ogg or a link> [lore character]', true) end
     do
-        local list = Whip.core:ListLoreCharacters()
+        local list = Whip.core:GetLoreCharacters()
         local c
         for _, x in ipairs(type(list) == 'table' and list or {}) do
             if type(x) == 'table' and (not key or x.key == key) then c = x break end

@@ -226,7 +226,7 @@ export class DuoViewer {
   #emit() { this.onChange?.(this.o, this.state); }
   /** WHERE THE DEVICE WILL SIT once still, as fractions of the screen ({ left, top, right, bottom }), or null when it
    *  is out of sight: the phone in its corner, its notifications peeking up from the bottom edge, or the tablet. The
-   *  page hands it to Lua, and whip_core's HUD makes room for it (its vehicle dial moves up or left: SetUIArea, Josh
+   *  page hands it to Lua, and whip_core's HUD makes room for it (its vehicle dial moves up or left: SetScreenArea, Josh
    *  7 Nov 2026). Reported when it changes, not per frame, as the move starts: the HUD eases over in step. */
   #area() {
     if (this.hidden && !this.peekN) return null;

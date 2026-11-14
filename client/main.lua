@@ -210,8 +210,8 @@ local function setOpen(on, mode)
     if on then screen:open() else screen:close() end
     if on then
         -- Chat and prompts make way. THE HUD STAYS (keepHud, Josh 7 Nov 2026): the status HUD, the minimap and the
-        -- vehicle dial stay up while the phone is used, and the dial moves out of the phone's way (SetUIArea, 'area').
-        Whip.core:SetUIOpen(true, 'phone', { keepHud = true })
+        -- vehicle dial stay up while the phone is used, and the dial moves out of the phone's way (SetScreenArea, 'area').
+        Whip.core:SetScreenOpen(true, 'phone', { keepHud = true })
         -- and Start / Esc (199, 200): the pause menu stays shut while the phone is up, and naming 200 tells whip the
         -- phone owns Esc (audit 10, DX-3: this was a DisableControlAction loop of its own in client/controller.lua)
         -- THE ANSWER IS READ (audit 11, DX-3): one wrong name in Config.BlockControls refused the whole block, Start and
@@ -229,7 +229,7 @@ local function setOpen(on, mode)
     else
         Whip.core:UnblockControls('whip_phone')
         Whip.core:UnblockControls('whip_phone:keys')   -- (an app that took every key: the page says so too)
-        Whip.core:SetUIOpen(false, 'phone')
+        Whip.core:SetScreenOpen(false, 'phone')
     end
     inHand(on and (mode or 'phone') or nil, on)
     TriggerEvent('whip_phone:client:opened', on)
@@ -600,12 +600,12 @@ RegisterNUICallback('callVolume', function(data, cb)
 end)
 
 -- WHERE THE PHONE WILL SIT (html/core/duo.js #area), as fractions of the screen, or nil when it is out of sight: its
--- notifications peeking up, the phone, the tablet. whip_core's HUD makes room for it (SetUIArea: the vehicle dial moves
+-- notifications peeking up, the phone, the tablet. whip_core's HUD makes room for it (SetScreenArea: the vehicle dial moves
 -- up over the notifications, or left beside the phone; Josh, 7 Nov 2026). Kept, so a whip_core that comes back
 -- (Whip.register below) hears it again.
 local area = nil
 local function sendArea()
-    Whip.core:SetUIArea(area or false, 'phone')
+    Whip.core:SetScreenArea(area or false, 'phone')
 end
 RegisterNUICallback('area', function(data, cb)
     cb({})
