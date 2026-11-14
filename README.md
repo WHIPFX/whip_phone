@@ -1,98 +1,129 @@
 # whip_phone
 
-The whip Duo phone as a real FiveM resource:
-- **The device:** the book-fold Duo in 3D, folding into a phone in the bottom-right and unfolding into a tablet in the middle.
-- **The shell:** the WhipOS lock screen, home screen and capsule dock.
-- **Notifications:** capsule-style, peeking up from out of sight.
-- **Layouts:** a mouse & keyboard layout and a console layout, switched by what the player uses (not a setting).
+The Duo phone for [WHIP](https://github.com/WHIPFX/txAdmin-recipe): a 3D phone that unfolds into a tablet. Calls,
+texts, banking and jobs are apps, and every app is a module: leave out the ones you don't want, or add your own from
+another resource.
 
-The core has **no apps of its own**. Every app is a module, and five come built in:
+## Features
 
-| Module | What it does |
-|---|---|
-| Phone | recents, contacts, keypad, call screen. Incoming calls show as a capsule when the phone is put away or in an app, and full screen on the home screen or when the phone is taken out. |
-| Messages | threads, chats, new message |
-| Bank | your accounts and their activity, transfers, sharing an account (people nearby or by character ID), opening and closing savings and shared accounts. "Received $X" when money arrives. whip_core's bank, always your own whatever SIM is in. |
-| Business | your jobs and duty; for ranks that may: the staff (hire nearby or by ID, change rank, fire) and the ranks. whip_core's jobs and their rules. |
-| Settings | My card (your name and a Fivemanage profile picture, dragged and zoomed to fit; people who have your number saved see it), wallpaper, SIM, Do Not Disturb, apps, about |
+- **A phone that folds.** The Duo sits in the bottom-right corner as a phone and unfolds into a tablet in the middle of
+  the screen.
+- **Calls.** Players call each other over [whip_voice](https://github.com/WHIPFX/whip_voice) and talk with their usual
+  key. On speaker, the people around the phone join the call.
+- **SIM cards.** A phone number lives on its SIM card. Put a SIM in any phone and you call and text as that number,
+  with its contacts and messages. Its owner can lock a number so its SIM stops working.
+- **Make it yours.** Wallpapers, ringtones and alert sounds, Do Not Disturb, a home screen you arrange, and a contact
+  card with your name and picture.
+- **Notifications.** They peek up from the corner while the phone is put away, and a ringing call can be answered
+  without taking it out.
+- **Mouse, keyboard or controller.** The layout follows what the player is using.
+- **Skill check games.** Seven games on the tablet, such as Safe Crack and Reroute, for WHIP's skill checks and the
+  Director.
+- **Lore characters.** The Director's characters have phone numbers. They text players and call them with recorded
+  lines.
 
-Remove any of them and the phone keeps working. Modules are UI only, so the framework supplies all data through whip_core SecureCallbacks.
+## Apps are modules
 
-**Apps from other resources** can be written two ways:
-- **render mode:** HTML strings with the phone's UI kit, matching the phone's look;
-- **mount mode:** the app draws itself with any library (React, Vue, Svelte, Preact...) in its own style. It gets a box the phone never touches.
+The phone's core has no apps of its own. Each app is a module, and these come with it:
 
-Either way, an app's CSS is scoped to that app, and it can set the status bar ink for a light design. Mount-mode apps can render live 3D (three.js comes with the page). See `docs/MODULES.md`. Working examples: `html/dev/example/app.js` (Garage, Preact) and `html/dev/example_3d/app.js` (Atlas, a 3D map).
+| App | What it does |
+| --- | --- |
+| Phone | Recents, contacts, keypad and the call screen |
+| Messages | Text conversations |
+| Bank | Accounts and their activity, transfers, opening savings and shared accounts, and sharing one |
+| Business | Your jobs and duty and, for ranks that may, hiring, firing and ranks |
+| Settings | Your contact card, wallpaper, sounds, SIM, Do Not Disturb and installed apps |
 
-**Status: not tested in game yet.** The core and modules have been run end-to-end in a browser against a mock framework (`html/preview.html`). The server side (numbers, SIM cards, contacts, messages, calls, Bank, Business) has passed Lua harnesses on stubs, but has not run on a server.
+`Config.Modules` lists the ones that load: `phone`, `messages`, `bank`, `business`, `settings` and `skillcheck`.
+Take an id out and that app is gone from every phone. The phone works with any set, or none. Keep `skillcheck` for
+the skill check games: it has no icon on the home screen.
 
-## Install
+Bank and Business act as the character holding the phone, whatever SIM is in it. Sharing an account and hiring send an
+invite that the other player accepts on their own phone.
 
-1. WHIP's txAdmin recipe installs it and adds `ensure whip_phone` to server.cfg (oxmysql and whip_core start first: its manifest asks for both). It makes and updates its own tables on start; no SQL.
-2. Give a player a `phone` and a `sim_card`. The card gets a new number for them. Put it in the phone: right-click the phone, then SIM tray.
-3. Press **M** (rebindable: "Phone: open / close"), use the phone item, or pick Phone on the F1 wheel. With no phone item it says "You need a phone".
+Other resources add apps of their own; see [For developers](#for-developers).
 
-**Calls:** they ring, connect and end between players, and show in Recents.
-- **Sound:** whip_voice carries the call. Talk with your normal key; the people around you still hear you.
-- **Speaker:** on speaker, the people near the phone hear the other side, and the other side hears them too.
-- **Mute:** the other side stops hearing you.
-- **Tuning:** `Config.CallSound` and `Config.SpeakerRange`.
-- **Without a voice system:** the phone shows "Voice connection failed, is the voice resource started?" until one runs.
+## Requirements
 
-## Modes
+- `whip_core` and [oxmysql](https://github.com/WHIPFX/oxmysql).
+- A voice system: [whip_voice](https://github.com/WHIPFX/whip_voice), or another voice resource set up as WHIP's
+  voice system. Without one, the phone shows "Voice connection failed, is the voice resource started?" and can't be
+  used.
 
-The phone has four ways of being on screen:
+## Installation
 
-| Mode | When |
-|---|---|
-| **Hidden** | out of sight below the bottom-right corner. This is where it starts. |
-| **Peek** | while hidden, notifications raise it just enough to show them: up to 3, then the oldest makes way. It drops away again when they expire. An incoming call peeks as a capsule with Decline / Answer until it is answered, declined or missed. |
-| **Phone** | the folded Duo in the bottom-right, using the cover display. |
-| **Tablet** | unfolded in the middle. `exports.whip_phone:Open('tablet')` goes there straight from hidden. |
+WHIP's txAdmin recipe installs it.
 
-Fold or unfold with Y on a controller, or with Control Centre (the status-bar icons).
+By hand, put `whip_phone` in your `resources` folder and add this line to `server.cfg`, after `ensure whip_core`:
 
-## Controls
+```cfg
+ensure whip_phone
+```
 
-| Input | Controls |
-|---|---|
-| Mouse | everything; the phone has NUI focus while it's open |
-| Keyboard | arrows to move, Enter to select, Esc / Backspace for back. Back at the top level puts the phone away. |
-| Controller | D-pad, A, B, X, Y (fold), LB / RB (tabs / pages), Start (Control Centre). Read in Lua (`client/controller.lua`), because FiveM's browser has no Gamepad API. |
+whip_phone creates its own tables on its first start. There's no SQL to import.
 
-The keyboard also reaches the game while the phone is open, so you can walk. It doesn't while you type.
+## Getting a phone
 
-## Files
+1. Get a `phone` and a `sim_card` item: sell them in a shop, or take them from `/whip` → Economy → Items.
+2. Right-click the phone in the inventory, choose **SIM tray**, and put the SIM in.
+3. Press **M**.
 
-| Path | What |
-|---|---|
-| `fxmanifest.lua`, `config.lua` | manifest (whip_core satellite) and options |
-| `client/main.lua` | open / close, NUI focus, SetUIOpen / BlockControls, module list, request forwarding, exports |
-| `client/controller.lua` | gamepad to phone commands |
-| `server/main.lua` | Notify / Push / Open / Close / SetSession / ReloadCache exports |
-| `server/contract.lua` | the phone's data: session, settings, contacts, messages, the SIM page |
-| `server/calls.lua` | calls and Recents |
-| `server/people.lua`, `server/bank.lua`, `server/business.lua` | the Bank and Business apps, on whip_core's bank and job exports |
-| `html/index.html` | the in-game NUI page (transparent) |
-| `html/core/` | OS shell, module runtime, UI kit, bridge, 3D Duo (three.js is vendored in `html/vendor`, MIT) |
-| `html/modules/<id>/module.js` | the built-in modules |
-| `html/preview.html`, `html/dev/` | browser preview with a mock framework, and example apps from "another resource" (`dev/example`, `dev/example_3d`). Not shipped to players. |
-| `docs/FRAMEWORK.md` | every request, push and export, plus the whip_core integration notes |
-| `docs/MODULES.md` | how to write a module, built-in or from another resource |
+A SIM card gets a fresh number for whoever it's given to or bought by. One made for nobody, such as a SIM in a stash
+or a Director reward, gets a number when it's first put in a phone.
 
-## Performance
+## For players
 
-Measured in headless Chrome on the mock framework (2026-10-08; not yet in game):
-- **Put away:** about 0.5 ms of page work per second. The 3D device's frame loop naps, nothing animates off screen, and no fold snapshots are taken. On the Lua side, the clock thread checks every 2 s and the controller thread every 250 ms.
-- **Open and idle:** about 15 ms/s. Only the display in use renders; looping animations run only on the display being looked at.
-- **Fold snapshots:** taken after a second of stillness or as a fold starts. They are sized to the display on screen (1.25x / 1.5x at 1080p, up to 2x), about 25 ms each.
-- **Reopening:** costs one `whip_phone:session` check. Contacts and app data reload only when the session changed, or on a push.
-- **Download:** three.js is the minified r170 build (0.69 MB).
-- **Mount-mode / 3D apps:** pause in `presence` while the phone is put away, and draw on demand or capped (docs/MODULES.md).
+| Key | Does |
+| --- | --- |
+| **M** | Take the phone out or put it away |
+| **Y** | Answer a ringing call |
+| **U** | Decline a ringing call |
 
-## Preview in a browser
+Players can rebind these in GTA's **Settings > Key Bindings > FiveM**. The phone is also on the F1 wheel and, on a
+controller, on D-pad up.
 
-Serve the `html/` folder (e.g. `python -m http.server` inside it) and open `preview.html`.
+The phone works with the mouse, or with the arrow keys, **Enter**, and **Esc** or **Backspace** to go back. On a
+controller, **Y** folds and unfolds it; with the mouse, use the fold button in Control Centre (the status bar's
+icons). Players can keep walking while the phone is out.
 
-- **Dev bar:** switches mode, layout and which modules are installed (try "None"). It also fires an incoming text, an incoming call, money arriving or a framework notification.
-- **Mock framework:** calls ring and connect, and contacts text back.
+## For admins
+
+- **`/whip` → Phones** lists every number. Open one to see whose it is and what it holds, change it, give yourself its
+  SIM card, delete it, or read its messages and calls.
+- **The Director's Lore cards** (Give Contact, Send Text and Phone Call) put lore characters on players' phones. Phone
+  calls with recorded lines need whip_voice's voice bot: see **Lore phone calls** in WHIP's docs
+  (`whip_core/docs.html`).
+- **The Skill Check Tester** is an app that appears for admins with developer mode on (`/w`). It plays any skill check
+  game at any level.
+
+## Configuration
+
+`config.lua` sets:
+
+| Settings | What they control |
+| --- | --- |
+| `OpenKey`, `AnswerKey`, `DeclineKey` | The default keys |
+| `PhoneSize` | The folded phone's height, as a share of the screen |
+| `Modules`, `DeveloperApps` | Which apps load, for everyone and for developers |
+| `Defaults` | A fresh phone's wallpaper, sounds and volume |
+| `NumberPrefixes`, `RingSeconds`, `MessageHistory`, `RecentCalls` | Phone numbers, how long a call rings, and how much history the phone loads |
+| `CallSound`, `SpeakerRange` | How a call sounds, and how far a phone on speaker carries |
+| `Emotes` | What the player holds while the phone is out |
+| `SkillGames` | Each skill check game's three levels |
+
+## For developers
+
+- **Your own app.** Register it from your resource with `exports.whip_phone:RegisterModule({ id, script })`; it goes
+  when your resource stops. An app can use the phone's UI kit, or draw itself with any library (React, Vue, Preact),
+  and its CSS is scoped to it. [docs/MODULES.md](docs/MODULES.md) is the guide, with working examples in
+  `html/dev/example/app.js` (Preact) and `html/dev/example_3d/app.js` (three.js).
+- **Exports.** On the server: `Notify`, `Push`, `Open`, `Close`, `SetSession`. On the client: `Open`, `Close`,
+  `IsOpen`, `GetState`, `Notify`, `Push`, `RegisterModule`, `UnregisterModule`, `RunApp`, `IsHeld`. Every export,
+  request and push is in [docs/FRAMEWORK.md](docs/FRAMEWORK.md).
+- **Preview in a browser.** Serve the `html/` folder (for example `python -m http.server` inside it) and open
+  `preview.html`. It runs the real phone on a mock server, with a bar to fire calls, texts and notifications.
+
+## License
+
+whip_phone is licensed under the GNU LGPL 3.0; see `LICENSE`. Third-party material is listed in `whip_core`'s
+`NOTICE.md`, including three.js (MIT) and the phone's fonts (SIL Open Font License 1.1).
