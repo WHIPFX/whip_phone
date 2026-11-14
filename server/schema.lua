@@ -130,15 +130,24 @@ local function migrate()
     end
     -- One row a block: the SIM's number and the number it blocked. (The admin panel retires a number rather than
     -- deleting its row, so these keys rarely fire: blocks.lua moves a retired number's blocks itself.)
-    MySQL.query.await([[CREATE TABLE IF NOT EXISTS `phone_blocks` (
-        `phoneNumber` CHAR(10) NOT NULL,
-        `blockedNumber` CHAR(10) NOT NULL,
+    -- The two numbers sort as phone_numbers' own does, whatever that is: a foreign key needs both sides to match, and
+    -- phone_numbers on an older database may still sort the server's default way (whip_core's migration 042 aligns it,
+    -- but not on a whip_core from before it). A mismatch would refuse the table and leave the phone off.
+    local numberSort = MySQL.single.await([[SELECT CHARACTER_SET_NAME AS cs, COLLATION_NAME AS coll
+        FROM information_schema.columns
+        WHERE table_schema = DATABASE() AND table_name = 'phone_numbers' AND column_name = 'phoneNumber']])
+    local cs, coll = numberSort and numberSort.cs, numberSort and numberSort.coll
+    local sort = (type(cs) == 'string' and cs:match('^[%w_]+$') and type(coll) == 'string' and coll:match('^[%w_]+$'))
+        and (' CHARACTER SET %s COLLATE %s'):format(cs, coll) or ''
+    MySQL.query.await(([[CREATE TABLE IF NOT EXISTS `phone_blocks` (
+        `phoneNumber` CHAR(10)%s NOT NULL,
+        `blockedNumber` CHAR(10)%s NOT NULL,
         `createdAt` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
         PRIMARY KEY (`phoneNumber`, `blockedNumber`),
         KEY `idx_blocked` (`blockedNumber`),
         CONSTRAINT `fk_blocks_phone` FOREIGN KEY (`phoneNumber`) REFERENCES `phone_numbers` (`phoneNumber`) ON DELETE CASCADE,
         CONSTRAINT `fk_blocks_blocked` FOREIGN KEY (`blockedNumber`) REFERENCES `phone_numbers` (`phoneNumber`) ON DELETE CASCADE
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci]])
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci]]):format(sort, sort))
 end
 
 --- The indexes the busy queries need (audit 20, PHN-2, PHN-6, PHN-7): a conversation each way, the Messages list and
