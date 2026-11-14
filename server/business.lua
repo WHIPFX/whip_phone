@@ -242,9 +242,12 @@ Whip.register(function()
         return true
     end)
 
-    -- args = { id } -> true. Going off duty works even while down, as whip_core's own clock-off does.
+    -- args = { id } -> true. Going off duty works even while down, as whip_core's own clock-off does. Always one job:
+    -- whip_core's ClockOff with no job takes them off duty everywhere, which the page never asks for.
     cb('clockOff', { rateLimit = 500, burst = 3, whileDead = true }, function(source, _, args)
-        local ok, why = exports.whip_core:ClockOff(source, whole(args.id))
+        local id = whole(args.id)
+        if not id then return false, 'No such job' end   -- whip_core's own answer
+        local ok, why = exports.whip_core:ClockOff(source, id)
         if not ok then return false, why or 'Could not clock off' end
         return true
     end)
