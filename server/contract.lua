@@ -26,6 +26,8 @@ local function secs(v) return tonumber(v) or os.time() end
 --- that does not answer becomes an error after whip_core's db_guard limit (loaded in fxmanifest.lua); here that is
 --- said in the console and the player is told the network is not answering, instead of a generic server error.
 local NET_DOWN = 'The phone network is not answering, try again'
+---@return boolean ok
+---@return any result  what MySQL[method].await answered
 local function db(method, query, params)
     local ok, result = pcall(MySQL[method].await, query, params)
     if not ok then
@@ -401,7 +403,7 @@ Whip.register(function()
     end)
 
     -- args = { number, locked }: lock or unlock one of my own numbers (it works in no phone while locked)
-    cb('whip_phone:settings:lock', WRITE, function(source, player, args)
+    cb('whip_phone:settings:lock', WRITE, function(_, player, args)
         local number = Numbers.clean(args.number)
         if not number or not player then return false, 'Which number?' end
         local ok, why = Numbers.setLocked(number, player.charId, args.locked == true)

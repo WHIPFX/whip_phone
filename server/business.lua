@@ -161,7 +161,7 @@ end
 Whip.register(function()
     -- args = { watch = false }: read without watching (the app is not in front of the player).
     -- -> { { id, name, icon, role, level, onDuty }, ... } by name
-    cb('jobs', LIGHT, function(source, player, args)
+    cb('jobs', LIGHT, function(source, _, args)
         local out = {}
         if args.watch == false then watching[source] = nil end
         for _, j in pairs(exports.whip_core:GetPlayerJobs(source) or {}) do
@@ -183,6 +183,7 @@ Whip.register(function()
         local id = whole(args.id)
         local j, why = place(source, id)
         if not j then return false, why end
+        ---@cast id -nil   -- place found the job
         if args.watch ~= false then watch(source, id) end
         local def = exports.whip_core:GetJob(id) or {}
         local p = j.permissions or {}
@@ -208,7 +209,7 @@ Whip.register(function()
         end
         local full = exports.whip_core:GetJobRoles(id) or {}
         local h, known = holds(j, full), {}
-        for _, p in ipairs(permissionList(def)) do known[p.key] = true end
+        for _, perm in ipairs(permissionList(def)) do known[perm.key] = true end
         local roles = {}
         for i, r in ipairs(full) do roles[i] = { roleId = r.roleId, name = r.name, level = r.level, give = mayGive(h, r, known) } end
         if def.ownerCharId and not emps[def.ownerCharId] then
@@ -233,24 +234,29 @@ Whip.register(function()
     end)
 
     -- args = { id } -> true. On duty, as the player: a job whose resource puts people on duty itself refuses.
-    cb('clockOn', WRITE, function(source, player, args)
-        local ok, why = exports.whip_core:ClockOn(source, whole(args.id), { by = source })
+    cb('clockOn', WRITE, function(source, _, args)
+        local id = whole(args.id)
+        if not id then return false, 'No such job' end   -- whip_core's own answer
+        local ok, why = exports.whip_core:ClockOn(source, id, { by = source })
         if not ok then return false, why or 'Could not clock on' end
         return true
     end)
 
     -- args = { id } -> true. Going off duty works even while down, as whip_core's own clock-off does.
-    cb('clockOff', { rateLimit = 500, burst = 3, whileDead = true }, function(source, player, args)
+    cb('clockOff', { rateLimit = 500, burst = 3, whileDead = true }, function(source, _, args)
         local ok, why = exports.whip_core:ClockOff(source, whole(args.id))
         if not ok then return false, why or 'Could not clock off' end
         return true
     end)
 
     -- args = { id, charId, roleId } -> true
-    cb('setRole', WRITE, function(source, player, args)
+    cb('setRole', WRITE, function(source, _, args)
         local charId = whole(args.charId)
         if not charId then return false, 'Who?' end
-        local ok, why = exports.whip_core:SetPlayerRole({ charId = charId }, whole(args.id), whole(args.roleId), { by = source })
+        local id, roleId = whole(args.id), whole(args.roleId)
+        if not id then return false, 'No such job' end   -- whip_core's own answers
+        if not roleId then return false, 'No such role at that job' end
+        local ok, why = exports.whip_core:SetPlayerRole({ charId = charId }, id, roleId, { by = source })
         if not ok then return false, why or 'Could not change their rank' end
         return true
     end)
@@ -260,7 +266,9 @@ Whip.register(function()
         local charId = whole(args.charId)
         if not charId then return false, 'Who?' end
         if charId == player.charId then return false, 'You cannot fire yourself' end
-        local ok, why = exports.whip_core:FirePlayer({ charId = charId }, whole(args.id), { by = source })
+        local id = whole(args.id)
+        if not id then return false, 'No such job' end   -- whip_core's own answer
+        local ok, why = exports.whip_core:FirePlayer({ charId = charId }, id, { by = source })
         if not ok then return false, why or 'Could not fire them' end
         return true
     end)
@@ -274,6 +282,7 @@ Whip.register(function()
         local id, roleId = whole(args.id), whole(args.roleId)
         local j, why = place(source, id)
         if not j then return false, why end
+        ---@cast id -nil   -- place found the job
         pruneOffers()
         if tooSoon(player.charId, charId) then return false, 'Wait a few seconds before offering them a job again' end
         local waiting = offersOn(id)
@@ -300,7 +309,7 @@ Whip.register(function()
     end)
 
     -- -> { { offer, job, role, from }, ... }: job offers waiting for this character's answer, oldest first.
-    cb('offers', LIGHT, function(source, player)
+    cb('offers', LIGHT, function(_, player)
         pruneOffers()
         local out = {}
         for _, o in pairs(offers) do
@@ -312,7 +321,7 @@ Whip.register(function()
 
     -- args = { offer, accept = true|false } -> { id } (accepted: the job) | true (declined). The offered player only.
     -- Accepted, whip_core hires them on the sender's authority, asked now.
-    cb('answerOffer', WRITE, function(source, player, args)
+    cb('answerOffer', WRITE, function(_, player, args)
         pruneOffers()
         local o = offers[whole(args.offer)]
         if not o or o.toCharId ~= player.charId then return false, 'That job offer is gone' end
@@ -332,7 +341,7 @@ Whip.register(function()
     end)
 
     -- args = { offer } -> true. Take back an offer not yet answered (anyone at that job who may hire).
-    cb('unoffer', WRITE, function(source, player, args)
+    cb('unoffer', WRITE, function(source, _, args)
         local o = offers[whole(args.offer)]
         if not o then return true end
         local j, why = place(source, o.jobId)
@@ -351,10 +360,11 @@ Whip.register(function()
 
     -- args = { id } -> { roles = { { roleId, name, level, permissions } }, perms = { { key, label, custom } }, level,
     --                   have = { perms, bank } } (what their own rank holds: a rank can be given no more)
-    cb('roles', LIGHT, function(source, player, args)
+    cb('roles', LIGHT, function(source, _, args)
         local id = whole(args.id)
         local j, why = place(source, id)
         if not j then return false, why end
+        ---@cast id -nil   -- place found the job
         if not (j.permissions or {}).canManage then return false, 'Your rank does not manage the business' end
         local roles = exports.whip_core:GetJobRoles(id) or {}
         local h = holds(j, roles)
@@ -363,8 +373,9 @@ Whip.register(function()
     end)
 
     -- args = { id, roleId = nil (new) | id, name, level, permissions = { [key] = bool, bankAccess } } -> { roleId }
-    cb('saveRole', WRITE, function(source, player, args)
+    cb('saveRole', WRITE, function(source, _, args)
         local id = whole(args.id)
+        if not id then return false, 'No such job' end   -- whip_core's own answer
         local perms
         if type(args.permissions) == 'table' then
             perms = {}
@@ -383,14 +394,21 @@ Whip.register(function()
             if not ok then return false, why or 'Could not save the rank' end
             return { roleId = roleId }
         end
-        local role, why = exports.whip_core:CreateJobRole(id, { name = name, level = whole(args.level), permissions = perms }, { by = source })
+        -- A new rank needs a name and a level: whip_core's own answers when one is missing (it checks the rest).
+        local level = whole(args.level)
+        if not name then return false, 'A role name is 1 to 60 characters' end
+        if not level then return false, 'A role\'s level is a whole number from 1 to 100' end
+        local role, why = exports.whip_core:CreateJobRole(id, { name = name, level = level, permissions = perms }, { by = source })
         if not role then return false, why or 'Could not make the rank' end
         return { roleId = role.roleId }
     end)
 
     -- args = { id, roleId } -> true
-    cb('deleteRole', WRITE, function(source, player, args)
-        local ok, why = exports.whip_core:DeleteJobRole(whole(args.id), whole(args.roleId), { by = source })
+    cb('deleteRole', WRITE, function(source, _, args)
+        local id, roleId = whole(args.id), whole(args.roleId)
+        if not id then return false, 'No such job' end   -- whip_core's own answers
+        if not roleId then return false, 'No such role at that job' end
+        local ok, why = exports.whip_core:DeleteJobRole(id, roleId, { by = source })
         if not ok then return false, why or 'Could not delete the rank' end
         return true
     end)

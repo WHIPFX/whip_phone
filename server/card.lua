@@ -38,7 +38,7 @@ function PhoneCards.pictureOf(number)
     end
     local c = PhoneCards.of(number)
     local url = c and c.picture
-    if type(url) ~= 'string' or not url:match('^https://[%w%-%.]+/[%w%-%._/]+$') then return nil, nil end
+    if not c or type(url) ~= 'string' or not url:match('^https://[%w%-%.]+/[%w%-%._/]+$') then return nil, nil end
     return url, c.frame
 end
 

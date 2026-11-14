@@ -186,6 +186,7 @@ local function ringLore(source, me, to)
     nextId = nextId + 1
     local call = { id = nextId, caller = source, callerNumber = me, calleeNumber = to, state = 'ringing' }
     calls[call.id], inCall[source] = call, call.id
+    ---@type boolean, integer|nil
     local okRow, row = pcall(MySQL.insert.await, 'INSERT INTO phone_calls (callerNumber, calleeNumber) VALUES (?, ?)', { me, to })
     if not okRow then row = nil end
     if calls[call.id] ~= call then
@@ -259,6 +260,7 @@ function Calls.fromLore(loreNumber, src, toNumber, botKey, onOutcome)
     local call = { id = nextId, lore = true, callerNumber = loreNumber, callee = src, calleeNumber = toNumber,
                    state = 'ringing', botKey = botKey, onOutcome = onOutcome }
     calls[call.id], inCall[src] = call, call.id
+    ---@type boolean, integer|nil
     local okRow, row = pcall(MySQL.insert.await, 'INSERT INTO phone_calls (callerNumber, calleeNumber) VALUES (?, ?)', { loreNumber, toNumber })
     if not okRow then row = nil end
     if calls[call.id] ~= call then
@@ -370,17 +372,18 @@ Whip.register(function()
         -- dials cannot both find the callee free. A database error used to throw out of here with that state left in
         -- place: both players "in a call" until they logged off, every dial to either one "Busy". Caught now: the call
         -- goes on without its Recents row.
-        local okRow, row = pcall(MySQL.insert.await, 'INSERT INTO phone_calls (callerNumber, calleeNumber) VALUES (?, ?)', { me, to })
+        ---@type boolean, integer|nil
+        local okRow, historyRow = pcall(MySQL.insert.await, 'INSERT INTO phone_calls (callerNumber, calleeNumber) VALUES (?, ?)', { me, to })
         if not okRow then
-            print(('^3[whip_phone] a call\'s history row could not be written (%s): the call goes on without it^7'):format(tostring(row)))
-            row = nil
+            print(('^3[whip_phone] a call\'s history row could not be written (%s): the call goes on without it^7'):format(tostring(historyRow)))
+            historyRow = nil
         end
         -- Ended while the row was written (one of them hung up, or left): nothing to ring, and the row says so.
         if calls[call.id] ~= call then
-            record(row, 'missed', false, true)
+            record(historyRow, 'missed', false, true)
             return false, 'That call has ended'
         end
-        call.row = row
+        call.row = historyRow
 
         -- With the called SIM's sounds (its ringtone, its volume), for a page that has not had its session yet.
         push(callee, 'incoming', { callId = call.id, number = me, sounds = PhoneDB.sounds(to) })
@@ -398,7 +401,7 @@ Whip.register(function()
     end)
 
     -- args = { callId } -> { state = 'active', startedAt }
-    cb('whip_phone:phone:answer', WRITE, function(source, player, args)
+    cb('whip_phone:phone:answer', WRITE, function(source, _, args)
         local call = mine(source, args)
         if not call or call.callee ~= source or call.state ~= 'ringing' then return false, 'That call has ended' end
         -- Both still hold the numbers it is between: a phone handed on while it rang cannot be answered by the
@@ -425,7 +428,7 @@ Whip.register(function()
     end)
 
     -- args = { callId }: the one being called said no
-    cb('whip_phone:phone:decline', WRITE, function(source, player, args)
+    cb('whip_phone:phone:decline', WRITE, function(source, _, args)
         local call = mine(source, args)
         if not call or call.state ~= 'ringing' then return true end
         record(call.row, 'declined', false, true)
@@ -435,7 +438,7 @@ Whip.register(function()
     end)
 
     -- args = { callId }: either side hung up (the caller before an answer: a missed call for the other)
-    cb('whip_phone:phone:end', WRITE_DOWNED, function(source, player, args)
+    cb('whip_phone:phone:end', WRITE_DOWNED, function(source, _, args)
         local call = mine(source, args, true)
         if not call then return true end
         local far = other(call, source)
@@ -451,13 +454,13 @@ Whip.register(function()
     end)
 
     -- args = { callId, on }: the other side stops hearing me (the people near me still do)
-    cb('whip_phone:phone:mute', WRITE_DOWNED, function(source, player, args)
+    cb('whip_phone:phone:mute', WRITE_DOWNED, function(source, _, args)
         local call = mine(source, args)
         if not call or call.state ~= 'active' or not call.lineId then return false, 'Not in a call' end
         return voice('SetLineMuted', call.lineId, source, args.on == true)
     end)
     -- args = { callId, on }: out loud — the people near me hear the other side, and the other side hears them
-    cb('whip_phone:phone:speaker', WRITE_DOWNED, function(source, player, args)
+    cb('whip_phone:phone:speaker', WRITE_DOWNED, function(source, _, args)
         local call = mine(source, args)
         if not call or call.state ~= 'active' or not call.lineId then return false, 'Not in a call' end
         return voice('SetLineSpeaker', call.lineId, source, args.on == true)
@@ -487,7 +490,7 @@ Whip.register(function()
     -- args = { token, yes }: the player answered an invite on the phone (whip_core checks it is theirs, and theirs now).
     -- Taken while downed too (audit 11, CLI-5): refused, the asker waited out its clock; whip_core counts a downed
     -- player's answer as 'dead', as the on-screen dialog's.
-    cb('whip_phone:phone:inviteAnswer', WRITE_DOWNED, function(source, player, args)
+    cb('whip_phone:phone:inviteAnswer', WRITE_DOWNED, function(source, _, args)
         local token = tonumber(args.token)
         if not token then return false, 'That invite is gone' end
         local done, why = exports.whip_core:AnswerAsk(source, token, args.yes == true)

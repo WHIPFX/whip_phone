@@ -162,11 +162,11 @@ local function toPhone(charId, event, data)
 end
 
 --- Tell the sender how it went: a notification on their phone (it opens the account), and their Sharing list read again.
-local function tellSender(inv, text, kind)
+local function tellSender(inv, message, kind)
     local src = toPhone(inv.fromCharId, 'shared', { id = inv.accountId })
     if src and Sim.phoneOf(src) then
         TriggerClientEvent('whip_phone:client:notify', src, {
-            app = 'bank', title = inv.label, text = text, kind = kind, args = { id = inv.accountId },
+            app = 'bank', title = inv.label, text = message, kind = kind, args = { id = inv.accountId },
         })
     end
 end
@@ -198,6 +198,7 @@ Whip.register(function()
         local id = whole(args.id)
         local r, why = mine(player.charId, id)
         if not r then return false, why end
+        ---@cast id -nil   -- mine found it
         local rows = exports.whip_core:GetBankTransactions(id, HISTORY, 0) or {}
         -- A transfer's other side is named when no character owns it (a lore character's account, a business's):
         -- "From Big Evil Criminal Boss". A person's account is never named here.
@@ -252,7 +253,7 @@ Whip.register(function()
             for _, r in ipairs(type(rows) == 'table' and rows or {}) do
                 if r.accountId == to then found = true break end
             end
-            if not found then return false, 'Pick one of your accounts' end
+            if not found or not to then return false, 'Pick one of your accounts' end
         end
         if not from then return false, 'Pick the account to send from' end
         if to == from then return false, 'That is the same account' end
@@ -265,10 +266,11 @@ Whip.register(function()
     -- args = { id } -> { { charId, name, role, me }, ..., { invite, charId, name, role, pending = true }, ... } (owner
     -- first, then invites waiting for an answer). Managers and the owner only. Everyone ON the account said yes to it
     -- (see the invites above), so they are named; an invite is named only if its sender could see the name.
-    cb('access', LIGHT, function(source, player, args)
+    cb('access', LIGHT, function(_, player, args)
         local id = whole(args.id)
         local r, why = mine(player.charId, id)
         if not r then return false, why end
+        ---@cast id -nil   -- mine found it
         if (RANK[r.role] or 0) < RANK.manager then return false, 'Only the owner and managers see who shares it' end
         local rows = exports.whip_core:GetBankAccessList(id) or {}
         local ids = {}
@@ -297,6 +299,7 @@ Whip.register(function()
         if charId == player.charId then return false, 'That is you' end
         local r, why = mine(player.charId, id)
         if not r then return false, why end
+        ---@cast id -nil   -- mine found it
         if (RANK[r.role] or 0) < RANK.manager then return false, 'Only the owner and managers add people' end
         if RANK[args.role] >= RANK[r.role] then return false, 'You can give people less than you have yourself' end
         local list = exports.whip_core:GetBankAccessList(id)
@@ -329,7 +332,7 @@ Whip.register(function()
     end)
 
     -- -> { { invite, account, role, from }, ... }: invites waiting for this character's answer, oldest first.
-    cb('invites', LIGHT, function(source, player)
+    cb('invites', LIGHT, function(_, player)
         pruneInvites()
         local out = {}
         for _, inv in pairs(invites) do
@@ -341,7 +344,7 @@ Whip.register(function()
 
     -- args = { invite, accept = true|false } -> { id } (accepted: the account) | true (declined). The invited player
     -- only. Accepted, the bank adds them on the sender's authority, asked now.
-    cb('answer', WRITE, function(source, player, args)
+    cb('answer', WRITE, function(_, player, args)
         pruneInvites()
         local inv = invites[whole(args.invite)]
         if not inv or inv.toCharId ~= player.charId then return false, 'That invite is gone' end
@@ -362,7 +365,7 @@ Whip.register(function()
     end)
 
     -- args = { invite } -> true. Take back an invite not yet answered (the owner or a manager of its account).
-    cb('uninvite', WRITE, function(source, player, args)
+    cb('uninvite', WRITE, function(_, player, args)
         local inv = invites[whole(args.invite)]
         if not inv then return true end
         local r, why = mine(player.charId, inv.accountId)
@@ -375,7 +378,7 @@ Whip.register(function()
     end)
 
     -- args = { id, charId } -> true
-    cb('unshare', WRITE, function(source, player, args)
+    cb('unshare', WRITE, function(source, _, args)
         local id, charId = whole(args.id), whole(args.charId)
         if not id or not charId then return false, 'Who?' end
         local ok, why = exports.whip_core:RevokeBankAccess(id, { charId = charId }, source)
@@ -389,7 +392,7 @@ Whip.register(function()
     end)
 
     -- args = { label, type = 'savings' | 'shared' } -> { id, number }
-    cb('open', WRITE, function(source, player, args)
+    cb('open', WRITE, function(source, _, args)
         local label = text(args.label, 50)
         if label == '' then return false, 'Give the account a name' end
         if args.type ~= 'savings' and args.type ~= 'shared' then return false, 'Pick savings or shared' end
@@ -399,8 +402,10 @@ Whip.register(function()
     end)
 
     -- args = { id } -> true. The owner, an empty savings or shared account (the bank checks).
-    cb('close', WRITE, function(source, player, args)
-        local ok, why = exports.whip_core:CloseBankAccount(whole(args.id), source)
+    cb('close', WRITE, function(source, _, args)
+        local id = whole(args.id)
+        if not id then return false, 'Account not found' end   -- the bank's own answer
+        local ok, why = exports.whip_core:CloseBankAccount(id, source)
         if not ok then return false, why or 'The bank refused' end
         return true
     end)

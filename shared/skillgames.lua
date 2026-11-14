@@ -52,6 +52,7 @@ function PhoneSkillGames.all()
     local out = {}
     for _, g in ipairs(GAMES) do
         local one = PhoneSkillGames.info(g.key)
+        ---@cast one -nil   -- g is one of GAMES, so info finds it
         one.levels = {}
         for _, name in ipairs(LEVELS) do one.levels[name] = PhoneSkillGames.level(g.key, name) end
         out[#out + 1] = one

@@ -112,7 +112,7 @@ function LorePhones.call(key, name, src, audio, done)
     if not lore then return nil, 'The lore character has no phone number' end
     local player = exports.whip_core:GetPlayer(src)
     local to = player and Sim.numberOf(src, player)   -- a call rings the phone in their hands (its SIM)
-    if not to then return 'nophone' end
+    if not player or not to then return 'nophone' end
     -- Down: they cannot take it (their phone is put away), so it does not ring (audit 20, PHN-4)
     if Calls.busy(src) or player.isDead then return 'busy' end
     local botKey, d = Whip.voice('CreateVoiceBot', { name = tostring(name), audio = audio })
@@ -268,7 +268,7 @@ Whip.card('phone.call', {
             pending = pending + 1
             local res, idOrWhy = LorePhones.call(c.key, c.name, src, url, settled)
             if res == 'ringing' then
-                mine[idOrWhy] = true
+                mine[idOrWhy --[[@as number]]] = true   -- ringing comes with the call's id
             else
                 pending = pending - 1
                 if res == nil then failed = idOrWhy else results[#results + 1] = res end
