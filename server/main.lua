@@ -44,9 +44,16 @@ exports('SetSession', function(src, session) TriggerClientEvent('whip_phone:clie
 --- right at once (Sim.recheckRetired), and the block lists follow a changed number, or drop a deleted one (Blocks.load).
 exports('ReloadCache', function()
     CreateThread(function()
+        -- The block lists straight after the numbers, before recheckRetired waits on each player: in between, a
+        -- changed number's texts would be checked against lists still keyed by the old one, and delivered. A list
+        -- that would not load is tried again, so a database hiccup leaves no window open until the restart.
         if PhoneDB.ready and Numbers.load() then
+            for try = 1, 3 do
+                if Blocks.load() then break end
+                if try < 3 then Wait(2000)
+                else print('[whip_phone] the block lists did not load after an admin change: the next restart reads them') end
+            end
             Sim.recheckRetired()
-            Blocks.load()
         end
         TriggerClientEvent('whip_phone:client:refresh', -1)
     end)
