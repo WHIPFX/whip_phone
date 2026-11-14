@@ -6,6 +6,7 @@ name 'whip_phone'
 author 'whip'
 description 'The whip Duo phone: an NUI phone shell with no apps of its own. Every app is a module (html/modules or another resource).'
 version '1.1.0'
+whip_updates 'WHIPFX/whip_phone'   -- whip_core checks this repository's releases for a newer version
 
 shared_scripts {
     '@whip_core/lib/satellite.lua',   -- first: Whip.register / Whip.call
