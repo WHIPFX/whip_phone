@@ -93,8 +93,12 @@ local function mine(source, args, own)
     return call
 end
 
+--- The other side of a call, or nil when there is none in the game: a blocked call (no callee rings) or a lore
+--- character's. Not `a and b or c`: with no callee that answered the caller themself, and a blocked caller who hung
+--- up was told 'missed' as if the call had rung out, which an unblocked caller never is.
 local function other(call, source)
-    return call.caller == source and call.callee or call.caller
+    if call.caller == source then return call.callee end
+    return call.caller
 end
 
 --- A player leaving ends their call: the other side hears it end.
