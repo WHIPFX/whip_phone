@@ -150,26 +150,26 @@ end
 
 --- mode: 'phone' or 'tablet' to hold that one, nil to put it away. starting: the phone is just coming out.
 local function inHand(mode, starting)
-    local now = Whip.call('IsEmoting')
+    local now = Whip.core:IsEmoting()
     if held and now ~= held then ours, held = false, nil end   -- ended or changed by the player
     if starting then ours = not now end
     local want = ours and mode and emoteFor(mode) or nil
     if not mode then ours = false end
     if want == held then return end
     if not want then
-        Whip.call('CancelEmote')   -- ours, still playing (checked above)
+        Whip.core:CancelEmote()   -- ours, still playing (checked above)
         held = nil
     elseif held or not now then
         -- COMING OUT OVER A DRAWN GUN, IT IS PUT AWAY FIRST (Josh, 16 Oct 2026): whip_core's FreeHands asks whatever
         -- holds the hands (whip_gunny holsters, with its animation) and waits for it; the phone emote, refused
         -- while armed, then plays. Only as the phone comes out: unfolding to a tablet keeps what is in the hands.
         if starting then
-            Whip.call('FreeHands')
+            Whip.core:FreeHands()
             -- FreeHands waits for the holster: the phone put away meanwhile (a check called off, a death, the key
             -- again) gets no phone in the hand afterwards
             if not open then ours = false return end
         end
-        if Whip.call('PlayEmote', want) == true then
+        if Whip.core:PlayEmote(want) == true then
             held = want            -- replaces ours; refused (still armed, in a car), ours stays
         end
     end
@@ -211,25 +211,25 @@ local function setOpen(on, mode)
     if on then
         -- Chat and prompts make way. THE HUD STAYS (keepHud, Josh 7 Nov 2026): the status HUD, the minimap and the
         -- vehicle dial stay up while the phone is used, and the dial moves out of the phone's way (SetUIArea, 'area').
-        Whip.call('SetUIOpen', true, 'phone', { keepHud = true })
+        Whip.core:SetUIOpen(true, 'phone', { keepHud = true })
         -- and Start / Esc (199, 200): the pause menu stays shut while the phone is up, and naming 200 tells whip the
         -- phone owns Esc (audit 10, DX-3: this was a DisableControlAction loop of its own in client/controller.lua)
         -- THE ANSWER IS READ (audit 11, DX-3): one wrong name in Config.BlockControls refused the whole block, Start and
         -- Esc with it, and nothing said so. Said once, with whip_core's reason (it lists the real group names), and
         -- the pause keys blocked on their own so Esc stays the phone's.
-        local blocked, why = Whip.call('BlockControls', 'whip_phone', { groups = Config.BlockControls, controls = { 199, 200 } })
+        local blocked, why = Whip.core:BlockControls('whip_phone', { groups = Config.BlockControls, controls = { 199, 200 } })
         if blocked ~= true and GetResourceState('whip_core') == 'started' then
             if not blockWarned then
                 blockWarned = true
                 print(('^3[whip_phone] Config.BlockControls was refused: %s. Only Start / Esc are blocked while the phone is up.^7')
                     :format(tostring(why)))
             end
-            Whip.call('BlockControls', 'whip_phone', { controls = { 199, 200 } })
+            Whip.core:BlockControls('whip_phone', { controls = { 199, 200 } })
         end
     else
-        Whip.call('UnblockControls', 'whip_phone')
-        Whip.call('UnblockControls', 'whip_phone:keys')   -- (an app that took every key: the page says so too)
-        Whip.call('SetUIOpen', false, 'phone')
+        Whip.core:UnblockControls('whip_phone')
+        Whip.core:UnblockControls('whip_phone:keys')   -- (an app that took every key: the page says so too)
+        Whip.core:SetUIOpen(false, 'phone')
     end
     inHand(on and (mode or 'phone') or nil, on)
     TriggerEvent('whip_phone:client:opened', on)
@@ -238,7 +238,7 @@ end
 --- first: an open that takes the FIRST phone (the hotkey, the F1 wheel, the Open export), so the server forgets a phone
 --- chosen by its own Use. A refresh, or Use on a phone, keeps the choice.
 local function loadSession(first)
-    local session, reason = Whip.call('Callback', 'whip_phone:session', { first = first == true })
+    local session, reason = Whip.core:Callback('whip_phone:session', { first = first == true })
     if not session then
         if Config.RequireSession then return nil, reason end
         session = {}
@@ -256,7 +256,7 @@ end
 
 --- Used from the inventory: the inventory makes way, so the phone is not drawn over it (Josh, 12 Oct 2026).
 local function inventoryAway()
-    if Whip.call('IsInventoryOpen') == true then Whip.call('CloseInventory') end
+    if Whip.core:IsInventoryOpen() == true then Whip.core:CloseInventory() end
 end
 
 --- mode: 'phone' (folded, cover display) or 'tablet' (opened straight into tablet mode)
@@ -265,8 +265,8 @@ local function openPhone(mode, fromItem)
     mode = mode == 'tablet' and 'tablet' or 'phone'
     -- NOT WHILE DOWN (Josh, 16 Oct 2026: a death hangs up and puts the phone away). The key mapping fires through the
     -- death's control lock; the server refuses a dead player's session too, but not every server requires one.
-    if Whip.call('IsPlayerDead') == true then
-        Whip.call('Notify', "You can't use your phone right now", 'error')
+    if Whip.core:IsPlayerDead() == true then
+        Whip.core:Notify("You can't use your phone right now", 'error')
         return false
     end
     -- Put away while the server answered (closePhone: a death, a logout, knocked down, the key): it stays away.
@@ -286,7 +286,7 @@ local function openPhone(mode, fromItem)
     if putAway ~= mine then return false end
     if not session then
         -- Refused (no SIM, not your phone): the inventory stays up, under the reason.
-        Whip.call('Notify', type(reason) == 'string' and reason or 'You need a phone', 'error')
+        Whip.core:Notify(type(reason) == 'string' and reason or 'You need a phone', 'error')
         return false
     end
     inventoryAway()
@@ -319,7 +319,7 @@ endForced = function(result)
     local f = forced
     if not f then return end
     forced = nil
-    Whip.call('UnblockControls', 'whip_phone:forced')
+    Whip.core:UnblockControls('whip_phone:forced')
     nui({ type = 'unforce' })
     if not f.wasOpen then
         if open then setOpen(false); nui({ type = 'close' }) end
@@ -345,12 +345,12 @@ local function runApp(id, args)
     if forced then return nil, 'busy' end
     if not hasApp(id) then return nil, 'no app' end
     if not nuiReady then return nil, 'not ready' end
-    if Whip.call('IsPlayerDead') == true then return nil, 'dead' end
+    if Whip.core:IsPlayerDead() == true then return nil, 'dead' end
     local f = { app = id, p = promise.new(), wasOpen = open, wasView = view }
     forced = f
     -- Held still while it plays, as the ring holds the player (the page still hears the keyboard and the pad). Taken
     -- BEFORE anything waits (setOpen waits for the hands: a gun holstered), so an endForced meanwhile lets it go.
-    Whip.call('BlockControls', 'whip_phone:forced', { all = true })
+    Whip.core:BlockControls('whip_phone:forced', { all = true })
     if not open then
         inventoryAway()
         setOpen(true, 'tablet')
@@ -380,9 +380,9 @@ end)
 RegisterNUICallback('keys', function(data, cb)
     cb({})
     if type(data) == 'table' and data.on == true and open then
-        Whip.call('BlockControls', 'whip_phone:keys', { groups = { 'move' } })
+        Whip.core:BlockControls('whip_phone:keys', { groups = { 'move' } })
     else
-        Whip.call('UnblockControls', 'whip_phone:keys')
+        Whip.core:UnblockControls('whip_phone:keys')
     end
 end)
 
@@ -397,7 +397,7 @@ for _, g in ipairs(PhoneSkillGames.list()) do
         -- A client script's SkillCheck({ game }) asks here (the server's asks server/skillgames.lua): no phone, no game
         -- (Josh, 31 Oct). From what this game already knows of the pockets: it must not wait.
         canStart = function()
-            if (tonumber(Whip.call('GetItemCount', 'phone')) or 0) > 0 then return true end
+            if (tonumber(Whip.core:GetItemCount('phone')) or 0) > 0 then return true end
             return false, Config.SkillGameNoPhone or 'You need a phone!'
         end,
         run = function(difficulty)
@@ -432,13 +432,13 @@ end
 RegisterNetEvent('whip_phone:client:skilltest', function(t)
     if type(t) ~= 'table' or type(t.settings) ~= 'table' then return end
     if testing or forced then return testAnswer(t, false, 'busy') end
-    if not (devOn and Whip.call('HasDevTools') == true) then return testAnswer(t, false, 'not a developer') end
+    if not (devOn and Whip.core:HasDevTools() == true) then return testAnswer(t, false, 'not a developer') end
     testing = true
     CreateThread(function()
         if t.game == 'ring' then
             closePhone()
             local started = GetGameTimer()
-            local passed, why = Whip.call('SkillCheck', { level = t.settings })
+            local passed, why = Whip.core:SkillCheck({ level = t.settings })
             local ms = GetGameTimer() - started
             openPhone('phone')
             testAnswer(t, passed, why, ms)
@@ -458,7 +458,7 @@ end)
 
 RegisterCommand('+whip_phone', function()
     if open then closePhone() return end
-    if Whip.call('IsGameInputFree') == false then return end              -- typing in chat or another UI has the keys
+    if Whip.core:IsGameInputFree() == false then return end              -- typing in chat or another UI has the keys
     CreateThread(function() openPhone('phone') end)
 end, false)
 RegisterCommand('-whip_phone', function() end, false)
@@ -469,7 +469,7 @@ RegisterKeyMapping('+whip_phone', 'Phone: open / close', 'keyboard', Config.Open
 -- on.callKey), and only to a call ringing in: any other time the key does nothing.
 local function callKey(which)
     -- Typing in chat or another UI has the keys; the phone's own focus is not that (its typing keeps the keys anyway)
-    if not open and Whip.call('IsGameInputFree') == false then return end
+    if not open and Whip.core:IsGameInputFree() == false then return end
     nui({ type = 'push', module = 'phone', event = 'callKey', data = { key = which } })
 end
 RegisterCommand('whip_phone_answer', function() callKey('answer') end, false)
@@ -496,7 +496,7 @@ end)
 RegisterNUICallback('ready', function(data, cb)
     nuiReady = true
     sentSession = nil                                            -- a (re)loaded page has no session yet
-    devOn = Whip.call('HasDevTools') == true                     -- (whip_phone started with developer mode on)
+    devOn = Whip.core:HasDevTools() == true                     -- (whip_phone started with developer mode on)
     SendNUIMessage({ type = 'init', modules = moduleList(), config = {
         phoneScale = Config.PhoneSize, defaults = Config.Defaults, clock = Config.GameClock and 'game' or 'real',
     } })
@@ -521,7 +521,7 @@ RegisterNUICallback('request', function(data, cb)
     local name = data and data.name
     if not allowed(name) then return cb({ ok = false, reason = 'not allowed' }) end
     CreateThread(function()
-        local result, reason = Whip.call('Callback', name, data.args or {})
+        local result, reason = Whip.core:Callback(name, data.args or {})
         if result == false then
             cb({ ok = false, reason = type(reason) == 'string' and reason or 'refused' })
         else
@@ -605,7 +605,7 @@ end)
 -- (Whip.register below) hears it again.
 local area = nil
 local function sendArea()
-    Whip.call('SetUIArea', area or false, 'phone')
+    Whip.core:SetUIArea(area or false, 'phone')
 end
 RegisterNUICallback('area', function(data, cb)
     cb({})

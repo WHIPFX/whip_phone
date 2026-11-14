@@ -36,7 +36,7 @@ This is every request the phone's core and built-in modules make, and every push
 module (JS)  app.request('send', { number, text })
   -> page    bridge.request('whip_phone:messages:send', args)
   -> client/main.lua  NUI callback 'request'  (only names under whip_phone: or a registered module's namespace)
-  -> Whip.call('Callback', 'whip_phone:messages:send', args)
+  -> Whip.core:Callback('whip_phone:messages:send', args)
   -> server  exports.whip_core:SecureCallback('whip_phone:messages:send', schema, fn(source, player, args))
 ```
 
@@ -44,7 +44,7 @@ module (JS)  app.request('send', { number, text })
 
 - **Success:** whatever the handler returns becomes the module's data. `nil` is fine and means "nothing".
 - **Refusal:** return `false, 'reason'`. The module receives the reason (`err.reason`), and the built-in modules show it to the player.
-- **Timeouts:** Whip.call times out after 10 s. A timeout is treated as a refusal.
+- **Timeouts:** `Whip.core:Callback` times out after 10 s. A timeout is treated as a refusal.
 
 **Times** can be `os.time()` seconds or milliseconds; the UI accepts both. **Phone numbers** are digit strings such as `'6895550142'`; the UI formats them as `689-555-0142`, matching inventory `format = 'phone'`.
 

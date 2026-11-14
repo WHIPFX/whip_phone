@@ -9,7 +9,7 @@ version '1.1.0'
 whip_updates 'WHIPFX/whip_phone'   -- whip_core checks this repository's releases for a newer version
 
 shared_scripts {
-    '@whip_core/lib/satellite.lua',   -- first: Whip.register / Whip.call
+    '@whip_core/lib/satellite.lua',   -- first: Whip.register / Whip.core
     'config.lua',
     'shared/skillgames.lua',          -- the skill check games: which, their levels and timings (both sides)
 }
