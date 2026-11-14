@@ -125,5 +125,6 @@ icons). Players can keep walking while the phone is out.
 
 ## License
 
-whip_phone is licensed under the GNU LGPL 3.0; see `LICENSE`. Third-party material is listed in `whip_core`'s
-`NOTICE.md`, including three.js (MIT) and the phone's fonts (SIL Open Font License 1.1).
+whip_phone is licensed under the GNU LGPL 3.0; see `COPYING.LESSER`, and `COPYING` for the GPL 3.0 it builds on.
+`NOTICE.md` says what the licence doesn't cover, including three.js (MIT) and the phone's fonts (SIL Open Font License
+1.1); `whip_core`'s `NOTICE.md` is the full list.
