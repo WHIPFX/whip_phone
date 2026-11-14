@@ -186,7 +186,7 @@ local function ringLore(source, me, to)
     nextId = nextId + 1
     local call = { id = nextId, caller = source, callerNumber = me, calleeNumber = to, state = 'ringing' }
     calls[call.id], inCall[source] = call, call.id
-    ---@type boolean, integer|nil
+    ---@type boolean, integer|string|nil
     local okRow, row = pcall(MySQL.insert.await, 'INSERT INTO phone_calls (callerNumber, calleeNumber) VALUES (?, ?)', { me, to })
     if not okRow then row = nil end
     if calls[call.id] ~= call then
@@ -260,7 +260,7 @@ function Calls.fromLore(loreNumber, src, toNumber, botKey, onOutcome)
     local call = { id = nextId, lore = true, callerNumber = loreNumber, callee = src, calleeNumber = toNumber,
                    state = 'ringing', botKey = botKey, onOutcome = onOutcome }
     calls[call.id], inCall[src] = call, call.id
-    ---@type boolean, integer|nil
+    ---@type boolean, integer|string|nil
     local okRow, row = pcall(MySQL.insert.await, 'INSERT INTO phone_calls (callerNumber, calleeNumber) VALUES (?, ?)', { loreNumber, toNumber })
     if not okRow then row = nil end
     if calls[call.id] ~= call then
@@ -372,7 +372,7 @@ Whip.register(function()
         -- dials cannot both find the callee free. A database error used to throw out of here with that state left in
         -- place: both players "in a call" until they logged off, every dial to either one "Busy". Caught now: the call
         -- goes on without its Recents row.
-        ---@type boolean, integer|nil
+        ---@type boolean, integer|string|nil
         local okRow, historyRow = pcall(MySQL.insert.await, 'INSERT INTO phone_calls (callerNumber, calleeNumber) VALUES (?, ?)', { me, to })
         if not okRow then
             print(('^3[whip_phone] a call\'s history row could not be written (%s): the call goes on without it^7'):format(tostring(historyRow)))
