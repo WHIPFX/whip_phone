@@ -258,7 +258,7 @@ Whip.register(function()
         if not from then return false, 'Pick the account to send from' end
         if to == from then return false, 'That is the same account' end
 
-        local ok, why = exports.whip_core:BankTransfer(from, to, amount, source, message)
+        local ok, why = exports.whip_core:BankTransfer(from, to, amount, source, { reason = message })
         if not ok then return false, why or 'The transfer did not go through' end
         return true
     end)
