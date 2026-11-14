@@ -28,7 +28,7 @@ Either way, an app's CSS is scoped to that app, and it can set the status bar in
 
 ## Install
 
-1. It comes in the `[whip]` folder, and `ensure [whip]` starts it (after oxmysql and whip_core: its manifest asks for both). It makes and updates its own tables on start; no SQL.
+1. WHIP's txAdmin recipe installs it and adds `ensure whip_phone` to server.cfg (oxmysql and whip_core start first: its manifest asks for both). It makes and updates its own tables on start; no SQL.
 2. Give a player a `phone` and a `sim_card`. The card gets a new number for them. Put it in the phone: right-click the phone, then SIM tray.
 3. Press **M** (rebindable: "Phone: open / close"), use the phone item, or pick Phone on the F1 wheel. With no phone item it says "You need a phone".
 
