@@ -235,7 +235,7 @@ The Business app is whip_core's jobs, asked with the player as `by` (`server/bus
 
 **Items** (done 7 Oct 2026, `server/items.lua`):
 - whip_phone registers `phone` (a panel item with a one-slot SIM tray) and `sim_card` (made for its receiver; a shop makes it for the buyer).
-- The phone in use is the one last opened from its own menu, else a phone in accessory strip slot 1, else the first phone anywhere on the character (`Sim.phoneOf`). The strip's slots take any item (5 Nov 2026: there is no Phone slot). `sim_card`'s `phoneNumber` shows as `xxx-xxx-xxxx`.
+- The phone in use is the one last opened from its own menu, else a phone in accessory strip slot 1, else the first phone anywhere on the character (`Sim.phoneOf`). Slot 1 is whip_core's Phone slot, and while whip_phone runs it takes phones only (`server/items.lua` registers it). `sim_card`'s `phoneNumber` shows as `xxx-xxx-xxxx`.
 - `whip_phone:session` refuses a player with no phone item.
 
 **Calls and voice (7 Oct 2026).** The sound of a call is the voice system's (whip_voice). No phone code is in it:

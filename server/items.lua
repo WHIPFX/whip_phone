@@ -58,12 +58,12 @@ Whip.register(function()
     })
     if not ok then print('[whip_phone] no SIM tray on phones: ' .. tostring(why)) end
 
-    -- The strip's first slot is where a phone is looked for first (server/sim.lua), so it shows a phone while this
-    -- runs. It still takes anything, and whip_core puts its own slot back when this stops. No strip, nothing to show.
+    -- The strip's first slot is its Phone slot, where a phone is looked for first (server/sim.lua): while this runs it
+    -- takes phones only, and whip_core puts its own slot back when this stops. No strip, nothing to make.
     local strip = exports.whip_core:GetAccessorySlots()
     if type(strip) == 'table' and strip[1] then
-        ok, why = exports.whip_core:RegisterAccessorySlot({ slot = 1, label = 'Accessory', icon = 'phone' })
-        if not ok then print('[whip_phone] the strip\'s first slot keeps its own icon: ' .. tostring(why)) end
+        ok, why = exports.whip_core:RegisterAccessorySlot({ slot = 1, label = 'Phone', accepts = PHONE, icon = 'phone' })
+        if not ok then print('[whip_phone] the strip\'s first slot takes anything, not only phones: ' .. tostring(why)) end
     end
 
     -- `false`: used, and KEPT. A use handler that answers nothing has its item consumed (whip_core's useItem: true or
