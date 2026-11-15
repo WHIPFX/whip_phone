@@ -249,7 +249,7 @@ The Business app is whip_core's jobs, asked with the player as `by` (`server/bus
 
 **Banking and Business.** The old phone's server-rendered apps in whip_core are gone. They are the Bank and Business modules now (`html/modules/bank` + `server/bank.lua`, `html/modules/business` + `server/business.lua`), on whip_core's bank and job exports. whip_core does not know the phone exists. The old `RegisterApp` / `RegisterAppHandler` / `AppHTML` exports went with them; `ReloadCache` stays (`server/main.lua`).
 
-**Keybind.** No phone key exists in whip_core (F3 is the emote menu). whip_phone uses `Config.OpenKey = 'M'`, labelled "Phone: open / close". A call ringing in can be answered or declined without opening the phone: `Config.AnswerKey = 'Y'` ("Phone: answer a call") and `Config.DeclineKey = 'U'` ("Phone: decline a call"), the same as its Answer and Decline buttons. Players rebind all three in GTA's Settings > Key Bindings > FiveM.
+**Keybind.** No phone key exists in whip_core (its emote menu is on the F1 wheel, with no key). whip_phone uses `Config.OpenKey = 'F3'`, labelled "Phone: open / close". A call ringing in can be answered or declined without opening the phone: `Config.AnswerKey = 'Y'` ("Phone: answer a call") and `Config.DeclineKey = 'U'` ("Phone: decline a call"), the same as its Answer and Decline buttons. Players rebind all three in GTA's Settings > Key Bindings > FiveM.
 
 ## Trying it without the game
 

@@ -1,7 +1,8 @@
 Config = {}
 
--- Open / close key. Players can rebind it (Settings > Key Bindings > FiveM > "Phone: open / close").
-Config.OpenKey = 'M'
+-- Open / close key. Players can rebind it (Settings > Key Bindings > FiveM > "Phone: open / close"). A new default
+-- reaches only players who have not bound the key yet.
+Config.OpenKey = 'F3'
 
 -- Answer / decline a call ringing in, with the phone out or put away. Players can rebind them too ("Phone: answer a
 -- call", "Phone: decline a call"). A new default reaches only players who have not bound the key yet.
