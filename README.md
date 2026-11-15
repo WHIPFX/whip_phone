@@ -69,7 +69,7 @@ whip_phone creates its own tables on its first start. There's no SQL to import.
 
 1. Get a `phone` and a `sim_card` item: sell them in a shop, or take them from `/whip` → Economy → Items.
 2. Right-click the phone in the inventory, choose **SIM tray**, and put the SIM in.
-3. Press **M**.
+3. Press **F3**.
 
 A SIM card gets a fresh number for whoever it's given to or bought by. One made for nobody, such as a SIM in a stash
 or a Director reward, gets a number when it's first put in a phone.
@@ -78,7 +78,7 @@ or a Director reward, gets a number when it's first put in a phone.
 
 | Key | Does |
 | --- | --- |
-| **M** | Take the phone out or put it away |
+| **F3** | Take the phone out or put it away |
 | **Y** | Answer a ringing call |
 | **U** | Decline a ringing call |
 
