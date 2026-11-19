@@ -70,6 +70,24 @@ Config.NumberPrefixes = { '689', '041', '227', '869', '915' }
 -- Seconds an unanswered call rings before it is missed.
 Config.RingSeconds = 30
 
+-- ---------------------------------------------------------------- service numbers (911, 311, ...)
+-- Short numbers anyone can dial from the keypad. A service number belongs to no SIM: it rings the phone of
+-- everyone ON DUTY at one of its jobs (and carrying a phone with a working SIM), all at once. The first to answer
+-- takes the call; the others stop ringing. Nobody on duty: the caller hears `noAnswer` straight away.
+--   label          what the answerer's call screen shows ("911 Emergency" with the caller's number under it)
+--   jobs           job keys whose on-duty staff answer (whip_core jobs: /whip -> Jobs)
+--   shareLocation  the answerer's GPS is set to where the caller was when they dialled
+--   noAnswer       what the caller hears when nobody can take it, or nobody answers in Config.RingSeconds
+-- Other resources (an MDT, a dispatch board) hear every one: server events whip_phone:service:called,
+-- whip_phone:service:answered and whip_phone:service:unanswered (docs/FRAMEWORK.md, Service numbers).
+-- Empty the table to turn service numbers off.
+Config.ServiceNumbers = {
+    ['911'] = { label = '911 Emergency', jobs = { 'police', 'ems' }, shareLocation = true,
+                noAnswer = 'No one is available to take your call' },
+    ['311'] = { label = '311 Non-emergency', jobs = { 'police' }, shareLocation = false,
+                noAnswer = 'No one is available, try again later' },
+}
+
 -- How many of a number's messages and calls the phone loads.
 Config.MessageHistory = 300
 Config.RecentCalls = 50

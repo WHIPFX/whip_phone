@@ -66,7 +66,7 @@
       : [...(c.state === 'active' ? [{ act: 'speaker', label: c.speaker ? 'Speaker off' : 'Speaker', tone: c.speaker ? 'on' : 'plain', icon: I.speaker }] : []),
         { act: 'hangup', label: 'End call', tone: 'reject', icon: GLYPH }];
     app.notify({
-      key: CALL_KEY, kind: 'call', persist: true, title: app.contacts.name(c.number), text: stateText(c), data: { callId: c.id },
+      key: CALL_KEY, kind: 'call', persist: true, title: c.label || app.contacts.name(c.number), text: stateText(c), data: { callId: c.id },
       tap: { act: 'showCall', label: 'Show call' }, actions, ...picOf(app, c.number),
     });
   }
@@ -96,7 +96,8 @@
     callSound(app);
     stopTick(); clearTimeout(clearer);
     if (!c.full) {
-      if (ringing && reason !== 'Declined') app.notify({ key: CALL_KEY, kind: 'error', title: app.contacts.name(c.number), text: 'Missed call', args: { tab: 'recents' }, ...picOf(app, c.number) });
+      // (A service call another unit answered, or that rang out, is no missed call of this phone's.)
+      if (ringing && reason !== 'Declined' && !c.service) app.notify({ key: CALL_KEY, kind: 'error', title: app.contacts.name(c.number), text: 'Missed call', args: { tab: 'recents' }, ...picOf(app, c.number) });
       else app.dismiss(CALL_KEY);
       s.call = null;
     } else clearer = setTimeout(() => { s.call = null; app.attention(false); app.render(); }, 1600);
@@ -421,7 +422,7 @@
     overlay(app, v) {
       const c = app.state.call;
       if (!c || !c.full) return '';
-      const name = app.contacts.name(c.number), saved = app.contacts.find(c.number), known = !!saved;
+      const saved = app.contacts.find(c.number), name = c.label || app.contacts.name(c.number), known = !!saved || !!c.label;
       // Hide: the call screen steps aside and the call goes on in the capsule (B does the same)
       const hide = c.state === 'ended' ? '' : `<button class="c-hide" data-act="hide" data-hint="Hide call">${I.chev}</button>`;
       let controls;
@@ -509,13 +510,15 @@
       editNumber(app, v) { if (app.state.edit) { app.state.edit.number = v.slice(0, 20); app.state.edit.error = ''; } },
     },
     on: {
-      /** { callId, number } someone is calling */
+      /** { callId, number, label?, service? } someone is calling (label, service: a service number's call) */
       incoming(app, d = {}) {
         const s = app.state;
         if (s.call && s.call.state !== 'ended') { app.notify({ title: 'Call waiting', text: app.contacts.name(d.number), kind: 'call' }); return; }
         clearTimeout(clearer);
         if (s.call) app.attention(false);                               // the last call's screen was still up: let it go
-        s.call = { id: d.callId, number: digits(d.number), state: 'incoming', since: 0, muted: false, speaker: false, pad: false, dtmf: '', full: homeInFront(app.presence) };
+        s.call = { id: d.callId, number: digits(d.number), state: 'incoming', since: 0, muted: false, speaker: false, pad: false, dtmf: '', full: homeInFront(app.presence),
+          // A service number's call (911, 311: server/calls.lua): its label over the caller's number
+          label: d.label ? String(d.label) : null, service: d.service === true };
         capsule(app);
       },
       /** { callId, state: ringing | active | ended | declined | busy | unavailable | missed, startedAt?, reason? } */

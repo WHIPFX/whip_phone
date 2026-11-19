@@ -261,6 +261,14 @@ export function createMock({ modules = ['phone', 'messages', 'bank', 'business',
     'whip_phone:phone:recents': () => recents,
     'whip_phone:phone:dial': ({ number }) => {
       const n = digits(number);
+      // Service numbers (Config.ServiceNumbers): someone on duty picks up in the preview
+      if (n === '911' || n === '311') {
+        const id = ++nextId;
+        calls[id] = { number: n, dir: 'out' };
+        setTimeout(() => !calls[id].done && push('phone', 'state', { callId: id, state: 'ringing' }), 500);
+        setTimeout(() => { if (!calls[id].done) { calls[id].start = S(); push('phone', 'state', { callId: id, state: 'active', startedAt: calls[id].start }); } }, 2800);
+        return { callId: id, state: 'dialing' };
+      }
       if (n.length < 7) throw new Error('Number not in service');
       if (n === me.number) throw new Error('You can’t call yourself');
       const id = ++nextId;
@@ -518,6 +526,13 @@ export function createMock({ modules = ['phone', 'messages', 'bank', 'business',
       calls[id] = { number: c.number, dir: 'in' };
       push('phone', 'incoming', { callId: id, number: c.number });
       setTimeout(() => { if (calls[id] && !calls[id].start) endCall(id, 'missed', 'Missed call'); }, 20000);
+    },
+    /** a 911 call rings this phone (the player is on duty at one of the service's jobs) */
+    incomingServiceCall() {
+      const id = ++nextId;
+      calls[id] = { number: '6894417720', dir: 'in' };
+      push('phone', 'incoming', { callId: id, number: '6894417720', label: '911 Emergency', service: true });
+      setTimeout(() => { if (calls[id] && !calls[id].start) endCall(id, 'ended', 'Answered by another unit'); }, 20000);
     },
     frameworkNotify() {
       bridge && bridge.emit({ type: 'notify', notification: pick([

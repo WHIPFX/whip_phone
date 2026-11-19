@@ -11,6 +11,7 @@ whip_updates 'WHIPFX/whip_phone'   -- whip_core checks this repository's release
 shared_scripts {
     '@whip_core/lib/satellite.lua',   -- first: Whip.register / Whip.core
     'config.lua',
+    'shared/settings.lua',            -- the Phone page in /whip -> Settings (config.lua's values, changed in game)
     'shared/skillgames.lua',          -- the skill check games: which, their levels and timings (both sides)
 }
 

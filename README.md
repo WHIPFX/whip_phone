@@ -14,6 +14,9 @@ another resource.
   with its contacts and messages. Its owner can lock a number so its SIM stops working.
 - **Make it yours.** Wallpapers, ringtones and alert sounds, Do Not Disturb, a home screen you arrange, and a contact
   card with your name and picture.
+- **Service numbers.** 911, 311 or any short number you set up ring the phones of everyone on duty at the jobs you
+  choose. The first to answer takes the call (with the caller's location on their GPS for 911); other resources hear
+  each call through server events, for an MDT or dispatch board. Set them in `Config.ServiceNumbers`.
 - **Block a number.** Its texts and calls stop reaching your SIM, and its owner isn't told: their texts show as sent
   and their calls ring out. Block from a conversation in Messages or a number's page in Phone, and unblock in
   **Settings > Blocked numbers**. Lore characters can't be blocked.
@@ -101,6 +104,11 @@ icons). Players can keep walking while the phone is out.
 
 ## Configuration
 
+The values owners change most are on the **Phone** page in `/whip` → Settings, so most servers never open
+`config.lua`: service numbers (911, 311), ring time, call and message history, speakerphone range, new number
+prefixes, the default keys, the phone's size and clock, and its messages. Changes there are saved in the database
+and survive updates; `config.lua` holds the defaults.
+
 `config.lua` sets:
 
 | Settings | What they control |
@@ -110,6 +118,7 @@ icons). Players can keep walking while the phone is out.
 | `Modules`, `DeveloperApps` | Which apps load, for everyone and for developers |
 | `Defaults` | A fresh phone's wallpaper, sounds and volume |
 | `NumberPrefixes`, `RingSeconds`, `MessageHistory`, `RecentCalls` | Phone numbers, how long a call rings, and how much history the phone loads |
+| `ServiceNumbers` | Short numbers (911, 311) that ring every on-duty member of the jobs you list; empty it to turn them off |
 | `CallSound`, `SpeakerRange` | How a call sounds, and how far a phone on speaker carries |
 | `Emotes` | What the player holds while the phone is out |
 | `SkillGames` | Each skill check game's three levels |

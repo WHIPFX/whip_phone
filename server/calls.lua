@@ -20,7 +20,9 @@ local LIGHT = { rateLimit = 250, burst = 6 }
 local WRITE_DOWNED = { rateLimit = 500, burst = 3, whileDead = true }
 
 --- [callId] = { id, row, caller, callerNumber, callee, calleeNumber, state = 'ringing'|'active', startedAt, lineId,
----   lineRes = the voice resource the line is on }
+---   lineRes = the voice resource the line is on }. A call to a service number (Config.ServiceNumbers) also has
+---   service (its config), serviceNumber, coords (where the caller dialled from) and, while it rings, ringers
+---   ([source] = { number, job }: everyone it rings; no callee until one of them answers)
 local calls = {}
 --- [source] = callId: one call each
 local inCall = {}
@@ -68,6 +70,13 @@ end
 --- missed (still ringing) or hung up.
 local function finish(call, outcome)
     calls[call.id] = nil
+    -- A service call that never got (or lost) its answerer: every phone it still rings stops.
+    if call.ringers then
+        for src in pairs(call.ringers) do
+            push(src, 'state', { callId = call.id, state = 'ended', reason = call.ringOff or 'Caller hung up' })
+        end
+        call.ringers = nil
+    end
     if call.caller and inCall[call.caller] == call.id then inCall[call.caller] = nil end
     if call.callee and inCall[call.callee] == call.id then inCall[call.callee] = nil end
     if call.lineId then
@@ -319,6 +328,118 @@ function Calls.cancel(id)
     finish(call, 'cancelled')
 end
 
+-- ---------------------------------------------------------------- service numbers (Config.ServiceNumbers)
+-- 911, 311 and the like: a number no SIM holds. Dialled, it rings every on-duty member of its jobs who carries a
+-- working phone, all at once; the first to answer takes it and the rest stop ringing. The call is then an ordinary
+-- call between the two (the voice line, mute, speaker, hanging up). Other resources hear each one through the
+-- whip_phone:service:* server events (docs/FRAMEWORK.md).
+
+--- The service a dialled number is, or nil: its config and its digits.
+local function serviceOf(raw)
+    local list = Config.ServiceNumbers
+    if type(list) ~= 'table' then return nil end
+    local n = tostring(raw or ''):gsub('%D', '')
+    local svc = list[n]
+    if type(svc) ~= 'table' or type(svc.jobs) ~= 'table' or #svc.jobs == 0 then return nil end
+    return svc, n
+end
+Calls.serviceOf = serviceOf
+
+--- What the service events carry about a call.
+local function serviceInfo(call, extra)
+    local info = { callId = call.id, number = call.serviceNumber, label = call.service.label, source = call.caller,
+                   callerNumber = call.callerNumber, coords = call.coords }
+    for k, v in pairs(extra or {}) do info[k] = v end
+    return info
+end
+
+--- Everyone a service call would ring now: on duty at one of its jobs, alive, free, with a working SIM in a phone
+--- they carry. [source] = { number, job }, and how many.
+local function serviceRingers(svc, caller)
+    local out, count = {}, 0
+    for _, job in ipairs(svc.jobs) do
+        local staff = exports.whip_core:GetClockedOnEmployees(job)
+        for _, e in ipairs(type(staff) == 'table' and staff or {}) do
+            local src = type(e) == 'table' and e.source or nil
+            if src and src ~= caller and not out[src] and not inCall[src] then
+                local sheet = exports.whip_core:GetPlayer(src)
+                local number = sheet and not sheet.isDead and Sim.numberOf(src, sheet) or nil
+                if number then out[src] = { number = number, job = job }; count = count + 1 end
+            end
+        end
+    end
+    return out, count
+end
+
+--- Dial a service number. Answers the dial's reply.
+local function dialService(source, me, number, svc)
+    if not Whip.voiceSystem() then return false, voiceDownText() end
+    if inCall[source] then return false, 'You are already in a call' end
+    local noAnswer = svc.noAnswer or 'No one is available to take your call'
+    local ped = GetPlayerPed(source)
+    local coords = (ped and ped ~= 0) and GetEntityCoords(ped) or nil
+    local ringers, count = serviceRingers(svc, source)
+    if count == 0 then
+        recordMissed(me, number, 'unavailable', false)
+        TriggerEvent('whip_phone:service:unanswered', { number = number, label = svc.label, source = source,
+            callerNumber = me, coords = coords, reason = 'nobody' })
+        return false, noAnswer
+    end
+
+    nextId = nextId + 1
+    local call = { id = nextId, caller = source, callerNumber = me, calleeNumber = number, state = 'ringing',
+                   service = svc, serviceNumber = number, coords = coords, ringers = ringers }
+    calls[call.id], inCall[source] = call, call.id
+    -- (Its history row cannot strand it either: see the dial below.)
+    local okRow, historyRow = pcall(MySQL.insert.await, 'INSERT INTO phone_calls (callerNumber, calleeNumber) VALUES (?, ?)', { me, number })
+    if not okRow then historyRow = nil end
+    if calls[call.id] ~= call then
+        record(historyRow, 'missed', false, true)
+        return false, 'That call has ended'
+    end
+    call.row = historyRow
+
+    for src, r in pairs(call.ringers or {}) do
+        push(src, 'incoming', { callId = call.id, number = me, label = svc.label or number, service = true, sounds = PhoneDB.sounds(r.number) })
+        push(src, 'state', { callId = call.id, state = 'ringing' })
+    end
+    push(source, 'state', { callId = call.id, state = 'ringing' })
+    TriggerEvent('whip_phone:service:called', serviceInfo(call, { ringing = count }))
+
+    SetTimeout((Config.RingSeconds or 30) * 1000, function()
+        if calls[call.id] ~= call or call.state ~= 'ringing' then return end
+        record(call.row, 'missed', false, true)
+        push(call.caller, 'state', { callId = call.id, state = 'unavailable', reason = noAnswer })
+        TriggerEvent('whip_phone:service:unanswered', serviceInfo(call, { reason = 'noanswer' }))
+        call.ringOff = 'Missed'
+        finish(call)
+    end)
+    return { callId = call.id, state = 'dialing' }
+end
+
+--- One of a ringing service call's ringers answers: they become its callee, the rest stop ringing. true, or false
+--- and why.
+local function claimService(call, source)
+    local r = call.ringers and call.ringers[source]
+    if not r or call.callee or call.state ~= 'ringing' then return false, 'That call has been answered' end
+    if inCall[source] then return false, 'You are already in a call' end
+    -- Still the one it rang: the same SIM in hand, still on duty at that job.
+    local job = exports.whip_core:GetPlayerJob(source)
+    if Sim.numberOf(source) ~= r.number or type(job) ~= 'table' or job.key ~= r.job then
+        call.ringers[source] = nil
+        push(source, 'state', { callId = call.id, state = 'ended', reason = 'Call ended' })
+        return false, 'That call has ended'
+    end
+    call.ringers[source] = nil
+    for src in pairs(call.ringers) do
+        push(src, 'state', { callId = call.id, state = 'ended', reason = 'Answered by another unit' })
+    end
+    call.ringers = nil
+    call.callee, call.calleeNumber, call.answeredJob = source, r.number, r.job
+    inCall[source] = call.id
+    return true
+end
+
 Whip.register(function()
     local function cb(name, schema, fn)
         exports.whip_core:SecureCallback(name, PhoneSchema(schema), function(source, player, args)   -- args: server/main.lua
@@ -362,7 +483,7 @@ Whip.register(function()
                 dir = outgoing and 'out' or (answered and 'in' or 'missed'),
                 time = tonumber(r.t) or os.time(),
                 duration = (answered and r.a and r.e) and math.max(0, math.floor(tonumber(r.e) - tonumber(r.a))) or 0,
-                noBlock = Numbers.loreOf(number) ~= nil or nil,
+                noBlock = (Numbers.loreOf(number) ~= nil or serviceOf(number) ~= nil) or nil,
             }
         end
         return out
@@ -372,6 +493,8 @@ Whip.register(function()
     cb('whip_phone:phone:dial', WRITE, function(source, player, args)
         local me, why = Sim.numberOf(source, player)
         if not me then return false, why end
+        local svc, svcNumber = serviceOf(args.number)
+        if svc then return dialService(source, me, svcNumber, svc) end
         local to = Numbers.clean(args.number)
         if not to then return false, 'A phone number is 10 digits' end
         if to == me then return false, 'You cannot call yourself' end
@@ -445,6 +568,12 @@ Whip.register(function()
 
     -- args = { callId } -> { state = 'active', startedAt }
     cb('whip_phone:phone:answer', WRITE, function(source, _, args)
+        -- A service call ringing this player among others: answering claims it first.
+        local ringing = calls[tonumber(args.callId) or -1]
+        if ringing and ringing.ringers and ringing.ringers[source] then
+            local claimed, whyNot = claimService(ringing, source)
+            if not claimed then return false, whyNot end
+        end
         local call = mine(source, args)
         if not call or call.callee ~= source or call.state ~= 'ringing' then return false, 'That call has ended' end
         -- Both still hold the numbers it is between: a phone handed on while it rang cannot be answered by the
@@ -467,11 +596,28 @@ Whip.register(function()
         call.state, call.startedAt = 'active', os.time()
         record(call.row, 'answered', true, false)
         push(call.caller, 'state', { callId = call.id, state = 'active', startedAt = call.startedAt })
+        if call.service then
+            if call.service.shareLocation and call.coords then exports.whip_core:SetPlayerWaypoint(source, call.coords) end
+            TriggerEvent('whip_phone:service:answered', serviceInfo(call, { by = source, byNumber = call.calleeNumber, job = call.answeredJob }))
+        end
         return { state = 'active', startedAt = call.startedAt }
     end)
 
     -- args = { callId }: the one being called said no
     cb('whip_phone:phone:decline', WRITE, function(source, _, args)
+        -- A service call: this ringer stops ringing; the caller hears nothing until the last one declines.
+        local ringing = calls[tonumber(args.callId) or -1]
+        if ringing and ringing.ringers and ringing.ringers[source] and ringing.state == 'ringing' then
+            ringing.ringers[source] = nil
+            if next(ringing.ringers) == nil then
+                local noAnswer = ringing.service.noAnswer or 'No one is available to take your call'
+                record(ringing.row, 'declined', false, true)
+                push(ringing.caller, 'state', { callId = ringing.id, state = 'unavailable', reason = noAnswer })
+                TriggerEvent('whip_phone:service:unanswered', serviceInfo(ringing, { reason = 'declined' }))
+                finish(ringing, 'declined')
+            end
+            return true
+        end
         local call = mine(source, args)
         -- Only the one being called declines (mine() answers either side); a caller who stops ringing hangs up
         -- (phone:end, a missed call).

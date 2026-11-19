@@ -101,7 +101,7 @@ The plain event `TriggerClientEvent('whip_phone:client:push', src, module, event
 | `inviteAnswer` | `{ token, yes }` | `true`, or `false, 'reason'` ("That question is gone": whip_core stopped waiting) |
 
 **Pushes to `phone`:**
-- **`incoming`** `{ callId, number }`: someone is calling. How it shows depends on what the player is doing:
+- **`incoming`** `{ callId, number, label?, service? }`: someone is calling (`label` and `service`: a service number's call, below). How it shows depends on what the player is doing:
   - phone put away, or the player is in an app: a call capsule with Decline / Answer. It stays up until the call is answered, declined or missed; a missed call turns it into a "Missed call" note;
   - phone out on the home or lock screen: the full incoming-call screen;
   - taking the phone out, going back to home, or tapping the capsule (X on a controller) while it rings switches to the full screen; putting the phone away switches back to the capsule;
@@ -127,6 +127,25 @@ The plain event `TriggerClientEvent('whip_phone:client:push', src, module, event
 **A call also ends when** a side logs out or disconnects, the SIM or phone leaves them (anything moved in their pockets, or the SIM tray), the number is locked, or the voice system stops. The other side gets `state ended` with the reason.
 
 **A call from a blocked number** (the callee's SIM blocked the caller): the caller gets what an unblocked call would get (unavailable, `Busy`, or `ringing` and then `unavailable` "No answer" after `Config.RingSeconds`), but the callee is never rung and its line stays free. The row is marked `blocked` and stays out of the callee's Recents. Blocking a number whose call is ringing at that moment sends the callee `state declined` and lets the caller's side ring out the same way. An answered call goes on.
+
+## Service numbers (911, 311, ...)
+
+`Config.ServiceNumbers` lists short numbers that belong to no SIM: `{ ['911'] = { label, jobs, shareLocation, noAnswer }, ... }`. Dialling one (keypad, Recents) goes through the same `dial` callback:
+
+1. It rings everyone **on duty** at one of its `jobs` (whip_core `GetClockedOnEmployees`) who is alive, not already in a call, and carries a phone with a working SIM, all at once. Each gets push `incoming { callId, number = the caller's, label, service = true }`: the call screen shows `label` over the caller's number.
+2. Nobody to ring: `dial` answers `false, noAnswer` at once (a Recents row with status `unavailable`).
+3. The first to `answer` takes it: they must still be on duty at that job with the same SIM. The others get `state ended` "Answered by another unit", with no missed-call note. From here it is an ordinary call between the two (voice line, mute, speaker, `end`). With `shareLocation`, the answerer's GPS is set to where the caller dialled from.
+4. A ringer who declines stops ringing; when the last one declines, or nobody answers in `Config.RingSeconds`, the caller gets `state unavailable` with `noAnswer`.
+
+Service numbers can't be blocked (`noBlock` on their Recents rows). The caller's Recents shows the service number; the answerer's shows nothing for it.
+
+**Server events** (`AddEventHandler`; check `GetInvokingResource() == 'whip_phone'`), for an MDT or dispatch board to log calls or open one when nobody answered:
+
+| Event | Payload |
+|---|---|
+| `whip_phone:service:called` | `{ callId, number, label, source, callerNumber, coords, ringing }`: it is ringing `ringing` phones |
+| `whip_phone:service:answered` | the same, plus `by` (the answerer's source), `byNumber`, `job` |
+| `whip_phone:service:unanswered` | `{ number, label, source, callerNumber, coords, reason }`; `reason` is `nobody` (no one to ring: no `callId`), `declined` or `noanswer` |
 
 ## Callbacks: Messages module (`whip_phone:messages:*`)
 
